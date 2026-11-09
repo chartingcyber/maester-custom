@@ -25,18 +25,19 @@ The script asks for every Graph permission in one sign-in, then:
 
 1. Opens sign-in prompts for Exchange Online, Security & Compliance and Teams (up to three more).
 2. Runs `Install-MtPack`, which shows what the pack reaches and asks you to approve it. Read it and accept.
-3. Runs Maester's built-in tests and the pack, and writes the report to `./test-results/contoso.com/assessment.html`.
+3. Runs Maester's built-in tests and the pack, and writes the report to `./test-results/contoso.com_20261109-143015/assessment.html` (the folder is named for the tenant and the time the run started).
 
-**Where results go:** `./test-results/<TenantId>/`, relative to the folder you run the script from (the repository
-folder if you followed the steps above, so `<repository>/test-results/contoso.com/`). It holds `assessment.html` (open
-this), `assessment.csv`, `assessment.json`, `assessment.md` and `assessment-summary.md`. The folder is named after the
-`-TenantId` you typed, and `test-results` is git-ignored, so client data is not committed. Use `-OutputFolder` to put
-it somewhere else; a second run into the same folder would reuse the same file names, so give each run its own
-folder if you want to keep the earlier report.
+**Where results go:** `./test-results/<TenantId>_<yyyyMMdd-HHmmss>/`, relative to the folder you run the script from
+(the repository folder if you followed the steps above, for example
+`<repository>/test-results/contoso.com_20261109-143015/`). The name is the `-TenantId` you typed, then the local date
+and time the script started, so every run gets its own folder and repeat runs against the same tenant over time never
+overwrite each other. It holds `assessment.html` (open this), `assessment.csv`, `assessment.json`, `assessment.md` and
+`assessment-summary.md`. `test-results` is git-ignored, so client data is not committed. Use `-OutputFolder` to choose
+the folder yourself (a second run into the same folder would reuse the same file names).
 
 **Running against a different tenant:** use that tenant's domain or ID in `-TenantId`, in a fresh `pwsh` window.
 Consent is per tenant, so the permission prompt (or the administrator's approval) happens again, and
-`Install-MtPack` asks for approval again. Each tenant gets its own results folder.
+`Install-MtPack` asks for approval again. Each run gets its own results folder.
 
 ### Sign-in countries
 
@@ -87,7 +88,7 @@ copy of Maester (which has no pack support and a shorter scope list).
 | 2. Request | Assessor (Global Reader or better) | `./Invoke-ResourciveAssessment.ps1 -TenantId contoso.com`. All 35 scopes are requested at once. If approval is needed, submit the request Entra offers. |
 | 3. Approve | Client Global Administrator | Approve the request in Entra admin center > Enterprise apps > Activity > Admin consent requests (app: *Microsoft Graph Command Line Tools*), or run the same command and tick **Consent on behalf of your organization**. Record who approved and when. |
 | 4. Run | Assessor | Run the same command again. It connects Graph, Exchange Online, Security & Compliance and Teams, installs the pack (you review and approve it) and runs everything. |
-| 5. Read | Assessor | Open `./test-results/<tenant>/assessment.html`. Skipped is not passed; each skip names its reason. |
+| 5. Read | Assessor | Open `./test-results/<tenant>_<timestamp>/assessment.html`. Skipped is not passed; each skip names its reason. |
 
 When the account is an administrator or approval already exists, steps 2 to 4 collapse into one run.
 
@@ -103,7 +104,7 @@ then stops with instructions (including a consent link for the administrator, wh
 | `-AllowPartial` | When approval is blocked, connect with Maester's own scopes and run anyway. |
 | `-ConnectOnly` | Connect everything, then stop, leaving the session ready for your own `Invoke-Maester`. |
 | `-Service` | Services after Graph. Default `ExchangeOnline, SecurityCompliance, Teams`. |
-| `-OutputFolder` | Results folder. Default `./test-results/<TenantId>`. |
+| `-OutputFolder` | Results folder. Default `./test-results/<TenantId>_<yyyyMMdd-HHmmss>`, one per run. |
 | `-SkipLongRunning` | Leave out the long-running checks: Maester's own and the pack's (found from the `LongRunning` flag on each check). |
 | `-ExpectedCountries` | Two-letter country codes for the sign-in country check. Default `US, CA`. |
 | `-Force` | Run even if a connected token lacks some scopes. |

@@ -28,7 +28,7 @@ Services to connect after Graph. Default: ExchangeOnline, SecurityCompliance, Te
 Two-letter ISO 3166-1 country codes where sign-ins are expected, for example GB, IE. Default: US, CA. The sign-in country check (3005) fails on any successful sign-in from another country. Codes: https://www.iso.org/obp/ui/#search/code/
 
 .PARAMETER OutputFolder
-Where results go. Default: ./test-results/<TenantId>.
+Where results go. Default: ./test-results/<TenantId>_<yyyyMMdd-HHmmss>, stamped with the local time the script started, so every run (including repeat runs against the same tenant) gets its own folder.
 
 .PARAMETER SkipLongRunning
 Leave out the long-running checks: Maester's own, and the pack's (found from the LongRunning flag in each check). Naming a pack would otherwise run its long-running checks.
@@ -60,7 +60,7 @@ param(
     [string[]] $Service = @('ExchangeOnline', 'SecurityCompliance', 'Teams'),
     [switch] $GraphOnly,
     [switch] $ConnectOnly,
-    [string] $OutputFolder = "./test-results/$TenantId",
+    [string] $OutputFolder,
     [switch] $SkipLongRunning,
     [switch] $Force,
     [switch] $AllowPartial,
@@ -71,6 +71,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Every run gets its own results folder, named for the tenant and the time the script started, so runs against the
+# same tenant over time never overwrite each other.
+if (-not $OutputFolder) {
+    $OutputFolder = "./test-results/$($TenantId -replace '[^\w.\-]', '_')_$((Get-Date).ToString('yyyyMMdd-HHmmss'))"
+}
 
 # 1. Pack scopes from the manifest (the single source of truth).
 $manifestPath = Join-Path $PackPath 'maester-pack.json'
