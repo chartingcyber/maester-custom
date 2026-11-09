@@ -55,20 +55,61 @@ function Test-ResBitLockerEnforcedAndEncrypted {
 
     $encrypted = @($devices | Where-Object { $_.isEncrypted -eq $true })
     $notEncrypted = @($devices | Where-Object { $_.isEncrypted -ne $true })
-    $percent = if ($devices.Count -gt 0) { [math]::Round(100 * $encrypted.Count / $devices.Count, 1) } else { 100 }
+    $noDevices = $devices.Count -eq 0
+    $percent = if ($noDevices) { $null } else { [math]::Round(100 * $encrypted.Count / $devices.Count, 1) }
+    $asOf = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')
 
-    $text = "**Policy: $($policyStatus.Status).** $($policyStatus.Detail)`n`n**Devices:** $($encrypted.Count) of $($devices.Count) managed Windows devices report that they are encrypted ($percent%), as of $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC. Required: $MinimumEncryptedPercent%.$(if ($stale.Count -gt 0) { " $($stale.Count) device(s) have not synced for $StaleDays days and are not counted; retire them in Intune or bring them back online." })"
+    $deviceLine = if ($noDevices) {
+        "**Devices:** none to assess. No managed Windows device has synced in the last $StaleDays days, so no device could confirm that it is encrypted (as of $asOf UTC)."
+    } else {
+        "**Devices:** $($encrypted.Count) of $($devices.Count) managed Windows devices report that they are encrypted ($percent%), as of $asOf UTC. Required: $MinimumEncryptedPercent%."
+    }
+    $text = "**Policy: $($policyStatus.Status).** $($policyStatus.Detail)`
+`
+$deviceLine$(if ($stale.Count -gt 0) { " $($stale.Count) device(s) have not synced for $StaleDays days and are not counted; retire them in Intune or bring them back online." })"
     if ($notEncrypted.Count -gt 0) {
-        $text += "`n`n| Device | User | Last sync |`n| --- | --- | --- |`n" + ((@($notEncrypted) | Select-Object -First 50 | ForEach-Object { "| $($_.deviceName) | $($_.userPrincipalName) | $($_.lastSyncDateTime) |" }) -join "`n")
-        if ($notEncrypted.Count -gt 50) { $text += "`n`nThe first 50 of $($notEncrypted.Count) devices are shown." }
+        $text += "`
+`
+| Device | User | Last sync |`
+| --- | --- | --- |`
+" + ((@($notEncrypted) | Select-Object -First 50 | ForEach-Object { "| $($_.deviceName) | $($_.userPrincipalName) | $($_.lastSyncDateTime) |" }) -join "`
+")
+        if ($notEncrypted.Count -gt 50) { $text += "`
+`
+The first 50 of $($notEncrypted.Count) devices are shown." }
+    }
+    if ($stale.Count -gt 0) {
+        $text += "`
+`
+Not counted (no sync for $StaleDays days):`
+`
+| Device | User | Last sync | Reports encrypted |`
+| --- | --- | --- | --- |`
+" + ((@($stale) | Select-Object -First 50 | ForEach-Object { "| $($_.deviceName) | $($_.userPrincipalName) | $($_.lastSyncDateTime) | $(if ($_.isEncrypted -eq $true) { 'Yes' } else { 'No' }) |" }) -join "`
+")
     }
 
-    $devicesOk = $percent -ge $MinimumEncryptedPercent
+    $devicesOk = -not $noDevices -and $percent -ge $MinimumEncryptedPercent
     if ($policyStatus.Status -eq 'Enforced' -and $devicesOk) {
-        Add-MtTestResultDetail -Result "Well done. BitLocker is required for all devices and the devices report that they are encrypted.`n`n$text"
+        Add-MtTestResultDetail -Result "Well done. BitLocker is required for all devices and the devices report that they are encrypted.`
+`
+$text"
         return $true
     }
-    if ($policyStatus.Status -eq 'Partial scope' -and $devicesOk) {
+    if ($policyStatus.Status -eq 'Enforced' -and $noDevices) {
+        if ($stale.Count -gt 0) {
+            # The policy is right but nothing current confirms it: a person has to decide, so this is not a pass.
+            Add-MtTestResultDetail -Result "BitLocker is required for all devices, but no device could confirm it: every managed Windows device is stale.`
+`
+$text" -Investigate
+            return $false
+        }
+        Add-MtTestResultDetail -Result "BitLocker is required for all devices. No managed Windows devices are enrolled, so there is no device to check yet.`
+`
+$text"
+        return $true
+    }
+    if ($policyStatus.Status -eq 'Partial scope' -and ($devicesOk -or $noDevices)) {
         Add-MtTestResultDetail -Result $text -Investigate
         return $false
     }

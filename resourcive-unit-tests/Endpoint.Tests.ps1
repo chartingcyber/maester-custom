@@ -42,6 +42,12 @@ Describe 'Endpoint checks' {
             Mock Get-ResIntuneConfigurationPolicy { New-Policy -Settings @((S 'device_vendor_msft_laps_policies_backupdirectory' 'x_1'), (S 'device_vendor_msft_laps_policies_passwordagedays' '90')) }
             Test-ResIntuneLapsAssigned | Should -BeFalse
         }
+        It 'counts an unset password age as the Windows default of 30 days and says so' {
+            Mock Get-ResIntuneConfigurationPolicy { New-Policy -Settings @((S 'device_vendor_msft_laps_policies_backupdirectory' 'x_1')) }
+            Test-ResIntuneLapsAssigned | Should -BeTrue
+            $detail[-1].Result | Should -Match 'not set \(Windows default: 30\)'
+            Test-ResIntuneLapsAssigned -MaximumPasswordAgeDays 14 | Should -BeFalse
+        }
         It 'is Investigate when only a group is assigned' {
             Mock Get-ResIntuneConfigurationPolicy { New-Policy -Assignment (New-Assignment -Scope Groups) -Settings @((S 'device_vendor_msft_laps_policies_backupdirectory' 'x_1')) }
             Test-ResIntuneLapsAssigned | Should -BeFalse
@@ -180,6 +186,30 @@ Describe 'Endpoint checks' {
             Mock Get-ResIntuneConfigurationPolicy { New-Policy -Settings @((S $bl "${bl}_1")) }
             Mock Get-ResWindowsManagedDevice { @([pscustomobject]@{ deviceName = 'D'; isEncrypted = $true }) }
             Test-ResBitLockerEnforcedAndEncrypted | Should -BeTrue
+        }
+        It '1008 is Investigate, not a pass, when every managed Windows device is stale' {
+            $old = (Get-Date).ToUniversalTime().AddDays(-120).ToString('o')
+            Mock Get-ResIntuneConfigurationPolicy { New-Policy -Settings @((S $bl "${bl}_1")) }
+            Mock Get-ResWindowsManagedDevice { @([pscustomobject]@{ deviceName = 'ghost'; isEncrypted = $false; azureADDeviceId = '22222222-2222-2222-2222-222222222222'; lastSyncDateTime = $old }) }
+            Test-ResBitLockerEnforcedAndEncrypted | Should -BeFalse
+            $detail[-1].Investigate | Should -BeTrue
+            $detail[-1].Result | Should -Not -Match 'Well done'
+            $detail[-1].Result | Should -Not -Match '100%'
+            $detail[-1].Result | Should -Match 'none to assess'
+            $detail[-1].Result | Should -Match 'ghost'
+        }
+        It '1008 says so, without Well done, when the policy is enforced and no Windows device is enrolled' {
+            Mock Get-ResIntuneConfigurationPolicy { New-Policy -Settings @((S $bl "${bl}_1")) }
+            Mock Get-ResWindowsManagedDevice { @() }
+            Test-ResBitLockerEnforcedAndEncrypted | Should -BeTrue
+            $detail[-1].Investigate | Should -BeFalse
+            $detail[-1].Result | Should -Match 'no device to check yet'
+            $detail[-1].Result | Should -Not -Match 'Well done'
+        }
+        It '1008 still fails with no policy even when there are no current devices' {
+            Mock Get-ResIntuneConfigurationPolicy { }
+            Mock Get-ResWindowsManagedDevice { @() }
+            Test-ResBitLockerEnforcedAndEncrypted | Should -BeFalse
         }
         It '1008 fails for an unencrypted device and honours the percentage' {
             Mock Get-ResIntuneConfigurationPolicy { New-Policy -Settings @((S $bl "${bl}_1")) }

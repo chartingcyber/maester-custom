@@ -56,13 +56,26 @@ function Test-ResSecurityChangeLog {
         return $true
     }
 
+    # Mark, never hide, the changes made by the account that is running this assessment: signing in to Maester can
+    # itself record a consent or permission grant, and a reader should not mistake that for an unplanned change.
+    $me = try { [string](Get-MgContext).Account } catch { '' }
+    $own = 0
     $rows = @($interesting | Sort-Object activityDateTime -Descending | Select-Object -First $MaximumListed | ForEach-Object {
             $actor = if ($_.initiatedBy.user.userPrincipalName) { $_.initiatedBy.user.userPrincipalName } elseif ($_.initiatedBy.app.displayName) { "app: $($_.initiatedBy.app.displayName)" } else { 'unknown' }
+            if ($me -and $actor -eq $me) { $actor = "$actor *"; $own++ }
             $target = (@($_.targetResources | ForEach-Object { $_.displayName } | Where-Object { $_ }) -join ', ')
             "| $($_.activityDateTime) | $($_.activityDisplayName) | $actor | $target |"
         })
-    $table = "| When (UTC) | Change | By | Target |`n| --- | --- | --- | --- |`n" + ($rows -join "`n")
-    $more = if ($interesting.Count -gt $MaximumListed) { "`n`nThe latest $MaximumListed of $($interesting.Count) changes are shown." } else { '' }
-    Add-MtTestResultDetail -Result "$($interesting.Count) security-relevant change(s) in the last $LookbackDays days (as of $asOf UTC). Confirm each was planned.`n`n$table$more" -Investigate
+    $table = "| When (UTC) | Change | By | Target |`
+| --- | --- | --- | --- |`
+" + ($rows -join "`
+")
+    $ownNote = if ($own -gt 0) { "`
+`
+\* Made by the account that ran this assessment ($me). Signing in to Maester can record a consent or permission grant, so confirm these against your own work." } else { '' }
+    $more = if ($interesting.Count -gt $MaximumListed) { "`
+`
+The latest $MaximumListed of $($interesting.Count) changes are shown." } else { '' }
+    Add-MtTestResultDetail -Result "$($interesting.Count) security-relevant change(s) in the last $LookbackDays days (as of $asOf UTC). Confirm each was planned.`n`n$table$ownNote$more" -Investigate
     return $true
 }

@@ -52,8 +52,10 @@ function Test-ResIntuneLapsAssigned {
         }
         $age = $policy.Settings | Where-Object { $_.DefinitionId -eq 'device_vendor_msft_laps_policies_passwordagedays' -or $_.DefinitionId -like 'device_vendor_msft_laps_policies_passwordagedays*' } | Select-Object -First 1
         $ageDays = if ($age -and $age.Value -match '^\d+$') { [int]$age.Value } else { $null }
-        # A policy that backs up the password but allows a longer age than the limit, or has none set, is not counted as enforcing.
-        $enforcing = $directory -ne 'Disabled' -and ($null -eq $ageDays -or $ageDays -le $MaximumPasswordAgeDays)
+        # A policy that sets no age uses the Windows LAPS default of 30 days. It is enforcing when it backs up the
+        # password and the age it sets, or that default, is no longer than the limit.
+        $effectiveAge = if ($null -ne $ageDays) { $ageDays } else { 30 }
+        $enforcing = $directory -ne 'Disabled' -and $effectiveAge -le $MaximumPasswordAgeDays
         [pscustomobject]@{
             Policy     = $policy.Name
             Mode       = if ($enforcing) { 'Enforced' } else { 'Audit' }
@@ -67,11 +69,11 @@ function Test-ResIntuneLapsAssigned {
 
     $table = "| Policy | Backs up to | Password age (days) | Assigned to |`n| --- | --- | --- | --- |`n"
     foreach ($row in @($evidence)) {
-        $table += "| $($row.Policy) | $($row.Directory) | $(if ($null -eq $row.AgeDays) { 'not set' } else { $row.AgeDays }) | $($row.Assignment.Text) |`n"
+        $table += "| $($row.Policy) | $($row.Directory) | $(if ($null -eq $row.AgeDays) { 'not set (Windows default: 30)' } else { $row.AgeDays }) | $($row.Assignment.Text) |`n"
     }
     if (@($evidence | Where-Object { $_ }).Count -eq 0) { $table = '' }
 
-    $summary = "**Status: $($status.Status).** $($status.Detail)`n`nRequired: a policy that backs up the password and sets an age of $MaximumPasswordAgeDays days or less, assigned to all devices or all users without exclusions.`n`n$table"
+    $summary = "**Status: $($status.Status).** $($status.Detail)`n`nRequired: a policy that backs up the password and keeps the password age at $MaximumPasswordAgeDays days or less (a policy that sets no age uses the Windows LAPS default of 30 days), assigned to all devices or all users without exclusions.`n`n$table"
 
     switch ($status.Status) {
         'Enforced' {
