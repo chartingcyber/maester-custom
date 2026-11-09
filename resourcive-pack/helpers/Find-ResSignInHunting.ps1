@@ -65,7 +65,7 @@ function Find-ResSignInHunting {
                 location          = [pscustomobject]@{ countryOrRegion = [string]$_.Country; city = [string]$_.City }
                 appDisplayName    = [string]$_.Application
                 clientAppUsed     = [string]$_.ClientAppUsed
-                logonType         = [string]$_.LogonType
+                logonType         = ([string]$_.LogonType -replace '[\[\]"]', '' -replace ',', ', ').Trim()
                 ipAddress         = [string]$_.IPAddress
             }
         })

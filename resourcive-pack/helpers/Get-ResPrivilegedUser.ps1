@@ -57,8 +57,16 @@ function Get-ResPrivilegedUser {
     }
 
     $unreadableGroups = [System.Collections.Generic.List[string]]::new()
+    $groupMembers = @{}   # a group can hold many roles; read (and fail) once per group
 
     function Get-GroupUserMember {
+        param($GroupId)
+        if ($groupMembers.ContainsKey([string]$GroupId)) { return $groupMembers[[string]$GroupId] }
+        $groupMembers[[string]$GroupId] = @(Read-GroupUserMember $GroupId)
+        $groupMembers[[string]$GroupId]
+    }
+
+    function Read-GroupUserMember {
         param($GroupId)
         try {
             @(Invoke-MtGraphRequest -RelativeUri "groups/$GroupId/transitiveMembers/microsoft.graph.user" -ApiVersion v1.0 -Select id, userPrincipalName, displayName, mail, accountEnabled, userType, onPremisesSyncEnabled -ErrorAction Stop |
@@ -70,8 +78,7 @@ function Get-ResPrivilegedUser {
                         Where-Object { $_.'@odata.type' -eq '#microsoft.graph.user' })
             } catch {
                 # Never fail every privileged-user check because one group cannot be read; report it instead.
-                $unreadableGroups.Add("$GroupId ($($_.Exception.Message.Split("`
-")[0]))")
+                $unreadableGroups.Add("$GroupId ($($_.Exception.Message.Split("`n")[0]))")
                 @()
             }
         }
