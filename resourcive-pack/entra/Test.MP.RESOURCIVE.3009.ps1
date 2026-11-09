@@ -14,9 +14,13 @@ function Test-ResLegacyAuthenticationSignIns {
     sign-ins, so the search uses the beta log with a signInEventTypes filter. If the beta log cannot be read, the
     check reads v1.0 instead, says that non-interactive sign-ins were not assessed, and cannot pass.
 
-    The search asks Graph for the matches only (one request over the whole period). If Graph refuses that filter
-    or it times out, the check reads one small request per day. A result of no matches is a pass only when the
-    whole period was searched; otherwise it is Investigate, with the days that were not read.
+    NOT RUN BY DEFAULT. The non-interactive log is large, and neither the server-side filter over the whole period
+    nor a capped day-by-day read has been shown to cover it, so the check is skipped as "Not assessed" unless
+    SearchLog is set. With SearchLog it asks Graph for the matches only (one request over the whole period, which
+    can take minutes or hit the 300 second HTTP timeout) and, if that fails, reads one small request per day. A
+    result of no matches is a pass only when the whole period was searched; otherwise it is Investigate. To check
+    by hand, filter the sign-in log in the Entra admin center by Client app (not Browser or Mobile Apps and
+    Desktop clients) and by Status: Success, on both the interactive and the non-interactive tabs.
 
     Entra keeps the sign-in log for 30 days with Entra ID P1 or P2. Sign-in log access through Graph needs a premium
     licence.
@@ -41,6 +45,9 @@ function Test-ResLegacyAuthenticationSignIns {
     [CmdletBinding()]
     [OutputType([bool])]
     param(
+        # Search the sign-in log. Without it the check is skipped as Not assessed (the search is slow and unproven on large logs).
+        [switch] $SearchLog,
+
         # How many days of sign-ins to search, including today. Entra keeps 30 days.
         [ValidateRange(1, 30)]
         [int] $LookbackDays = 7,
@@ -58,9 +65,13 @@ function Test-ResLegacyAuthenticationSignIns {
         [int] $TimeBudgetSeconds = 600
     )
 
+    if (-not $SearchLog) {
+        Add-MtTestResultDetail -SkippedBecause Custom -SkippedCustomReason 'Not assessed: searching the sign-in log for legacy protocol sign-ins (which are mostly non-interactive) is slow and has not been shown to cover a large log, so it only runs with the SearchLog parameter. Policy coverage is checked by MT.1009, MT.1010, MT.1033 and CISA MS.AAD.1.1. To check by hand, filter the Entra sign-in log by Client app (not Browser or Mobile Apps and Desktop clients) and Status: Success, on the interactive and non-interactive tabs.'
+    }
+
     Assert-ResLicense -Name 'Microsoft Entra ID P1' -ServicePlan (Get-ResServicePlanName -Product EntraP1)
 
-    $found = Find-ResSignIn -Kind Legacy -LookbackDays $LookbackDays -MaximumMatches $MaximumMatches -MaximumSignInsPerDay $MaximumSignInsPerDay -TimeBudgetSeconds $TimeBudgetSeconds
+    $found = Find-ResSignIn -Kind Legacy -ServerFilter -LookbackDays $LookbackDays -MaximumMatches $MaximumMatches -MaximumSignInsPerDay $MaximumSignInsPerDay -TimeBudgetSeconds $TimeBudgetSeconds
 
     $unread = @($found.Days | Where-Object { $_.State -like 'Not read*' })
     if ($found.Mode -eq 'PerDay' -and $unread.Count -eq @($found.Days).Count) {

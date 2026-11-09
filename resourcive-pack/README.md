@@ -239,6 +239,27 @@ Not assessed by any check, because tenant settings cannot show it: PowerShell Co
 setting; 1004 says so in every result), and Intune Device Control rule entries (1003 lists the profiles and returns
 Investigate instead of guessing).
 
+## Checking the sign-in log by hand
+
+Both sign-in checks can be done in the Microsoft Entra admin center, which is the quickest way for 3009. Open
+**Entra ID > Monitoring & health > Sign-in logs** (https://entra.microsoft.com), then:
+
+1. Set **Date** to the last 7 days and add the filter **Status: Success**.
+2. **Legacy protocols (3009):** add the filter **Client app** and tick everything except *Browser* and *Mobile Apps and
+   Desktop clients*: Exchange ActiveSync, IMAP4, POP3, SMTP, Authenticated SMTP, Exchange Web Services, Autodiscover,
+   MAPI Over HTTP, Outlook Anywhere (RPC over HTTP), Other clients and similar. Any row is a legacy sign-in.
+3. **Countries (3005):** add the **Location** filter if your portal offers it, or add the **Location** column
+   (Columns) and sort by it, and look for countries other than your expected ones.
+4. Do steps 1 to 3 on **both** tabs, *User sign-ins (interactive)* and *User sign-ins (non-interactive)*: legacy
+   protocols mostly appear on the non-interactive tab, which the Graph v1.0 log does not return.
+5. **Download** exports the filtered rows as CSV if you want to keep the evidence.
+
+If the tenant sends its sign-in logs to Log Analytics (a diagnostic setting, with an Azure workspace), the
+*Sign-ins using legacy authentication* workbook (Monitoring & health > Workbooks) shows legacy sign-ins in seconds.
+With **Entra ID P2** the Defender advanced hunting table `EntraIdSignInEvents` holds interactive and non-interactive
+sign-ins and answers both questions in one fast query, but this pack does not use it: the tenants it targets often
+have only Entra ID P1.
+
 ## Known limits
 
 The pack has run against two real tenants. The first full run found bugs that the unit tests (Graph and Exchange stubbed)
@@ -248,11 +269,11 @@ empty privileged-user list, most likely because `isPrivileged` is returned only 
 fix has not been confirmed in a tenant yet). Still to confirm: the settings catalog definition IDs (which Microsoft can
 rename) and the roles marked "unverified" above.
 
-The sign-in log is slow (tens of seconds for a request). The sign-in checks (3005, 3009) therefore ask Graph for the
-matching sign-ins only, in one request over the 7 days, and stop at the first 10 matches. If Graph refuses that filter or
-it times out, they read one small request per day and filter in PowerShell; any day not read in full is listed, and a
-result with no matches is then Investigate, never a pass. 3009 searches the beta sign-in log for non-interactive
-sign-ins as well, because legacy protocols usually sign in non-interactively and the v1.0 log does not return those;
-if the beta log cannot be read it says so and cannot pass. Neither the server-side filters nor the beta event filter have
-been run against a tenant yet. Secure Score (3007) needs `SecurityEvents.Read.All`, which
+The sign-in log is slow (about 40 seconds for a request, whatever the size), so 3005 reads one small request per day,
+newest first, and stops at the first 10 matches; a full 7 days takes about 4 to 5 minutes. Any day not read in full is
+listed and a result with no matches is then Investigate, never a pass. A single server-side filter over the whole period
+ran into the 300 second HTTP timeout in testing, so it is not used by default. 3009 is **off by default** and skips as
+"Not assessed": legacy protocols usually sign in non-interactively, the v1.0 log returns only interactive sign-ins, and
+the beta non-interactive log is large and unproven here. Set the `SearchLog` parameter to try it. Until then, check by
+hand (next section). Secure Score (3007) needs `SecurityEvents.Read.All`, which
 Maester's default Graph consent does not include: consent to it when you connect.

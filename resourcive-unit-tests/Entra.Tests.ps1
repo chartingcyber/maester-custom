@@ -32,13 +32,16 @@ Describe 'Entra checks' {
         It 'marks changes made by the signed-in account and keeps them listed' {
             Mock Get-MgContext { [pscustomobject]@{ Account = 'me@contoso.com' } }
             Mock Invoke-MtGraphRequest { @(
-                    [pscustomobject]@{ activityDateTime = '2026-10-20T10:00:00Z'; activityDisplayName = 'Consent to application'; category = 'ApplicationManagement'; initiatedBy = [pscustomobject]@{ user = [pscustomobject]@{ userPrincipalName = 'me@contoso.com' } }; targetResources = @([pscustomobject]@{ displayName = 'Microsoft Graph Command Line Tools' }) },
+                    [pscustomobject]@{ activityDateTime = (Get-Date).ToUniversalTime().AddHours(-1).ToString('o'); activityDisplayName = 'Consent to application'; category = 'ApplicationManagement'; initiatedBy = [pscustomobject]@{ user = [pscustomobject]@{ userPrincipalName = 'me@contoso.com' } }; targetResources = @([pscustomobject]@{ displayName = 'Microsoft Graph Command Line Tools' }) },
+                    [pscustomobject]@{ activityDateTime = (Get-Date).ToUniversalTime().AddDays(-10).ToString('o'); activityDisplayName = 'Add delegated permission grant'; category = 'ApplicationManagement'; initiatedBy = [pscustomobject]@{ user = [pscustomobject]@{ userPrincipalName = 'me@contoso.com' } }; targetResources = @([pscustomobject]@{ displayName = 'Old grant' }) },
                     [pscustomobject]@{ activityDateTime = '2026-10-19T10:00:00Z'; activityDisplayName = 'Update conditional access policy'; category = 'Policy'; initiatedBy = [pscustomobject]@{ user = [pscustomobject]@{ userPrincipalName = 'other@contoso.com' } }; targetResources = @() }) }
             Test-ResSecurityChangeLog | Should -BeTrue
             $detail[-1].Investigate | Should -BeTrue
             $detail[-1].Result | Should -Match 'me@contoso.com \*'
             $detail[-1].Result | Should -Not -Match 'other@contoso.com \*'
             $detail[-1].Result | Should -Match 'Made by the account that ran this assessment'
+            $detail[-1].Result | Should -Match 'Old grant \|'
+            ([regex]::Matches($detail[-1].Result, 'me@contoso.com \*')).Count | Should -Be 1
             $detail[-1].Result | Should -Match 'Update conditional access policy'
         }
     }
@@ -131,7 +134,7 @@ Describe 'Entra checks' {
         Context 'Find-ResSignIn' {
             It 'searches the whole period with one filtered request that stops at ten matches' {
                 Mock Invoke-MtGraphRequest { New-RawPage -Rows @((New-Country 'RU'), (New-Country 'CN' 'b@c.com')) }
-                $r = Find-ResSignIn -Kind Country -ExpectedCountry US, CA
+                $r = Find-ResSignIn -Kind Country -ExpectedCountry US, CA -ServerFilter
                 $r.Mode | Should -Be 'ServerFilter'
                 $r.Complete | Should -BeTrue
                 $r.AtLeast | Should -BeFalse
@@ -141,15 +144,23 @@ Describe 'Entra checks' {
                     $Filter -match "location/countryOrRegion ne 'US'" -and $Filter -match "location/countryOrRegion ne 'CA'" -and $Filter -match 'status/errorCode eq 0'
                 }
             }
+            It 'reads day by day by default and never sends the whole-period filtered request' {
+                Mock Invoke-MtGraphRequest { New-RawPage -Rows @((New-Country 'US')) }
+                $r = Find-ResSignIn -Kind Country -ExpectedCountry US, CA -LookbackDays 3
+                $r.Mode | Should -Be 'PerDay'
+                $r.FallbackReason | Should -BeNullOrEmpty
+                $r.Complete | Should -BeTrue
+                Should -Invoke Invoke-MtGraphRequest -Times 3 -Exactly -ParameterFilter { $QueryParameters['$top'] -eq 200 -and $Filter -notmatch 'location/countryOrRegion' }
+            }
             It 'says at least when the limit is reached' {
                 Mock Invoke-MtGraphRequest { New-RawPage -Rows @(1..10 | ForEach-Object { New-Country 'RU' "u$_@c.com" }) }
-                $r = Find-ResSignIn -Kind Country -ExpectedCountry US
+                $r = Find-ResSignIn -Kind Country -ExpectedCountry US -ServerFilter
                 $r.AtLeast | Should -BeTrue
                 @($r.Matches).Count | Should -Be 10
             }
             It 'treats an empty server result as a complete answer' {
                 Mock Invoke-MtGraphRequest { New-RawPage -Rows @() }
-                $r = Find-ResSignIn -Kind Country -ExpectedCountry US
+                $r = Find-ResSignIn -Kind Country -ExpectedCountry US -ServerFilter
                 @($r.Matches).Count | Should -Be 0
                 $r.Complete | Should -BeTrue
             }
@@ -158,7 +169,7 @@ Describe 'Entra checks' {
                     if ($QueryParameters['$top'] -eq 10) { throw 'BadRequest: Unsupported filter on location' }
                     New-RawPage -Rows @(1..15 | ForEach-Object { New-Country 'RU' "u$_@c.com" })
                 }
-                $r = Find-ResSignIn -Kind Country -ExpectedCountry US -LookbackDays 3
+                $r = Find-ResSignIn -Kind Country -ExpectedCountry US -LookbackDays 3 -ServerFilter
                 $r.Mode | Should -Be 'PerDay'
                 $r.FallbackReason | Should -Match 'not usable'
                 @($r.Matches).Count | Should -Be 10
@@ -196,7 +207,7 @@ Describe 'Entra checks' {
             }
             It 'searches legacy sign-ins in the beta log, including non-interactive ones' {
                 Mock Invoke-MtGraphRequest { New-RawPage -Rows @((New-Legacy 'IMAP4')) }
-                $r = Find-ResSignIn -Kind Legacy
+                $r = Find-ResSignIn -Kind Legacy -ServerFilter
                 $r.Mode | Should -Be 'ServerFilter'
                 $r.NonInteractiveAssessed | Should -BeTrue
                 Should -Invoke Invoke-MtGraphRequest -Times 1 -Exactly -ParameterFilter {
@@ -208,7 +219,7 @@ Describe 'Entra checks' {
                     if ($ApiVersion -eq 'beta') { throw 'BadRequest: Unsupported filter signInEventTypes' }
                     New-RawPage -Rows @((New-Legacy 'Browser'))
                 }
-                $r = Find-ResSignIn -Kind Legacy -LookbackDays 2
+                $r = Find-ResSignIn -Kind Legacy -LookbackDays 2 -ServerFilter
                 $r.Mode | Should -Be 'PerDay'
                 $r.NonInteractiveAssessed | Should -BeFalse
                 $r.Complete | Should -BeFalse
@@ -231,10 +242,12 @@ Describe 'Entra checks' {
                 $detail[-1].Result | Should -Match 'Well done'
             }
             It 'uses the countries it is given instead of the default' {
-                Mock Invoke-MtGraphRequest { New-RawPage -Rows @() }
+                Mock Invoke-MtGraphRequest { New-RawPage -Rows @((New-Country 'GB'), (New-Country 'IE' 'i@c.com')) }
                 Test-ResSignInsFromUnexpectedCountries -ExpectedCountries 'gb', 'IE' | Should -BeTrue
-                Should -Invoke Invoke-MtGraphRequest -ParameterFilter { $Filter -match "ne 'GB'" -and $Filter -match "ne 'IE'" -and $Filter -notmatch "ne 'US'" }
                 $detail[-1].Result | Should -Match 'outside GB, IE'
+                Mock Invoke-MtGraphRequest { New-RawPage -Rows @((New-Country 'US' 'u@c.com')) }
+                Test-ResSignInsFromUnexpectedCountries -ExpectedCountries 'gb', 'IE' | Should -BeFalse
+                $detail[-1].Result | Should -Match 'u@c.com'
             }
             It 'rejects a country that is not a two-letter code' {
                 { Test-ResSignInsFromUnexpectedCountries -ExpectedCountries 'USA' } | Should -Throw
@@ -260,15 +273,22 @@ Describe 'Entra checks' {
         }
 
         Context '3009 legacy sign-ins' {
+            It 'is skipped as Not assessed unless SearchLog is set, without calling Graph' {
+                Mock Invoke-MtGraphRequest { throw 'must not be called' }
+                { Test-ResLegacyAuthenticationSignIns } | Should -Throw 'skipped:Custom'
+                $detail[-1].Reason | Should -Match 'Not assessed'
+                $detail[-1].Reason | Should -Match 'MT.1033'
+                Should -Invoke Invoke-MtGraphRequest -Times 0 -Exactly
+            }
             It 'fails on a legacy sign-in and lists user and protocol' {
                 Mock Invoke-MtGraphRequest { New-RawPage -Rows @((New-Legacy 'IMAP4' 'm@c.com'), (New-Legacy 'IMAP4' 'm@c.com')) }
-                Test-ResLegacyAuthenticationSignIns | Should -BeFalse
+                Test-ResLegacyAuthenticationSignIns -SearchLog | Should -BeFalse
                 $detail[-1].Result | Should -Match 'm@c.com'
                 $detail[-1].Result | Should -Match 'IMAP4'
             }
             It 'passes when none is found and the whole period, interactive and non-interactive, was searched' {
                 Mock Invoke-MtGraphRequest { New-RawPage -Rows @() }
-                Test-ResLegacyAuthenticationSignIns | Should -BeTrue
+                Test-ResLegacyAuthenticationSignIns -SearchLog | Should -BeTrue
                 $detail[-1].Result | Should -Match 'non-interactive'
             }
             It 'is Investigate, never a pass, when only the v1.0 log could be read' {
@@ -276,13 +296,13 @@ Describe 'Entra checks' {
                     if ($ApiVersion -eq 'beta') { throw 'BadRequest: Unsupported filter signInEventTypes' }
                     New-RawPage -Rows @((New-Legacy 'Browser'))
                 }
-                Test-ResLegacyAuthenticationSignIns -LookbackDays 2 | Should -BeFalse
+                Test-ResLegacyAuthenticationSignIns -SearchLog -LookbackDays 2 | Should -BeFalse
                 $detail[-1].Investigate | Should -BeTrue
                 $detail[-1].Result | Should -Match 'Non-interactive sign-ins'
             }
             It 'skips as not assessed when every request times out' {
                 Mock Invoke-MtGraphRequest { throw $script:timeout }
-                { Test-ResLegacyAuthenticationSignIns -LookbackDays 2 } | Should -Throw 'skipped:Custom'
+                { Test-ResLegacyAuthenticationSignIns -SearchLog -LookbackDays 2 } | Should -Throw 'skipped:Custom'
                 $detail[-1].Reason | Should -Match 'Not assessed'
             }
         }

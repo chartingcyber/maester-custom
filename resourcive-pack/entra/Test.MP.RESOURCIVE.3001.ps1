@@ -62,7 +62,7 @@ function Test-ResSecurityChangeLog {
     $own = 0
     $rows = @($interesting | Sort-Object activityDateTime -Descending | Select-Object -First $MaximumListed | ForEach-Object {
             $actor = if ($_.initiatedBy.user.userPrincipalName) { $_.initiatedBy.user.userPrincipalName } elseif ($_.initiatedBy.app.displayName) { "app: $($_.initiatedBy.app.displayName)" } else { 'unknown' }
-            if ($me -and $actor -eq $me) { $actor = "$actor *"; $own++ }
+            if ($me -and $actor -eq $me -and ([datetime]$_.activityDateTime).ToUniversalTime() -gt (Get-Date).ToUniversalTime().AddHours(-24)) { $actor = "$actor *"; $own++ }
             $target = (@($_.targetResources | ForEach-Object { $_.displayName } | Where-Object { $_ }) -join ', ')
             "| $($_.activityDateTime) | $($_.activityDisplayName) | $actor | $target |"
         })
@@ -72,7 +72,7 @@ function Test-ResSecurityChangeLog {
 ")
     $ownNote = if ($own -gt 0) { "`
 `
-\* Made by the account that ran this assessment ($me). Signing in to Maester can record a consent or permission grant, so confirm these against your own work." } else { '' }
+\* Made by the account that ran this assessment ($me) in the last 24 hours. Signing in to Maester can record a consent or permission grant, so confirm these against your own work." } else { '' }
     $more = if ($interesting.Count -gt $MaximumListed) { "`
 `
 The latest $MaximumListed of $($interesting.Count) changes are shown." } else { '' }

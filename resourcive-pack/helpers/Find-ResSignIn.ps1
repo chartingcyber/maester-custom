@@ -4,12 +4,11 @@ function Find-ResSignIn {
     Finds the first few sign-in log records that are a finding, and says how much of the log was searched.
 
     .DESCRIPTION
-    The sign-in log is slow, so the search is cheap first and thorough second:
-
-    1. One request over the whole lookback period, with the finding as a server-side filter and a small $top, so
-       Graph stops after MaximumMatches records. When nothing matches, the result is a complete answer.
-    2. If Graph refuses the filter or the request times out, one small request per day, newest first, filtered
-       here with Test-ResSignInMatch. The search stops as soon as MaximumMatches records are found, or when the
+    The sign-in log is slow. By default the search reads one small request per day, newest first, and filters here
+    with Test-ResSignInMatch. With -ServerFilter it first tries one request over the whole lookback period with the
+    finding as a server-side filter and a small $top, so Graph stops after MaximumMatches records; that request
+    ran into the 300 second HTTP timeout on the interactive log, so it is opt-in. When it is refused or times out,
+    the search falls back to the day-by-day read. The search stops as soon as MaximumMatches records are found, or when the
        time budget is used. Days that were not read, or only partly read, are listed, and Complete is false.
 
     Kind Country searches the v1.0 log, which holds interactive user sign-ins. Kind Legacy searches the beta log
@@ -45,7 +44,11 @@ function Find-ResSignIn {
 
         # Day by day, stop starting new days after this many seconds. A request already running is not interrupted.
         [ValidateRange(30, 3600)]
-        [int] $TimeBudgetSeconds = 600
+        [int] $TimeBudgetSeconds = 600,
+
+        # Try one server-side filtered request over the whole period first. Off by default: on the interactive log it
+        # was seen to run into the 300 second HTTP timeout, which wastes five minutes before the day-by-day read.
+        [switch] $ServerFilter
     )
 
     $expected = @($ExpectedCountry | ForEach-Object { ([string]$_).Trim().ToUpperInvariant() } | Where-Object { $_ })
@@ -72,11 +75,11 @@ function Find-ResSignIn {
 
     $fallbackReason = $null
 
-    # 1. One server-side search over the whole period.
-    $serverFilter = "createdDateTime ge $($start.ToString($stamp)) and $kindFilter"
-    if ($Kind -eq 'Legacy') { $serverFilter += " and $eventFilter" }
-    try {
-        $page = Get-ResGraphPage (Invoke-MtGraphRequest -RelativeUri 'auditLogs/signIns' -ApiVersion $api -Filter $serverFilter -Select $select -QueryParameters @{ '$top' = $MaximumMatches } -DisablePaging -ErrorAction Stop)
+    # 1. One server-side search over the whole period (opt-in).
+    $wholePeriodFilter = "createdDateTime ge $($start.ToString($stamp)) and $kindFilter"
+    if ($Kind -eq 'Legacy') { $wholePeriodFilter += " and $eventFilter" }
+    if ($ServerFilter) { try {
+        $page = Get-ResGraphPage (Invoke-MtGraphRequest -RelativeUri 'auditLogs/signIns' -ApiVersion $api -Filter $wholePeriodFilter -Select $select -QueryParameters @{ '$top' = $MaximumMatches } -DisablePaging -ErrorAction Stop)
         $rows = @($page.Rows)
         $hits = @($rows | Where-Object { Test-ResSignInMatch -SignIn $_ -Kind $Kind -ExpectedCountry $expected } | Select-Object -First $MaximumMatches)
         return [pscustomobject]@{
@@ -95,7 +98,7 @@ function Find-ResSignIn {
             Resolve-ResGraphError -ErrorRecord $_ -Feature 'the sign-in log' -Requires 'AuditLog.Read.All and Reports Reader, Security Reader or Global Reader'
         }
         $fallbackReason = "The server-side filter was not usable ($(($text -replace '\s+', ' ').Trim().Substring(0, [math]::Min(120, ($text -replace '\s+', ' ').Trim().Length))))."
-    }
+    } }
 
     # 2. One small request per day, newest first, filtered here.
     $clock = [System.Diagnostics.Stopwatch]::StartNew()

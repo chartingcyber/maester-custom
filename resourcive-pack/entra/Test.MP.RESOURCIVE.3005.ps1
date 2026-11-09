@@ -8,9 +8,10 @@ function Test-ResSignInsFromUnexpectedCountries {
     (default US and CA) and stops at the first MaximumMatches (default 10). Any match fails the check and lists the
     users, countries and apps. A sign-in from an unexpected country is a sign of a stolen password or token.
 
-    The search asks Graph for the matches only (one request over the whole period). If Graph refuses that filter or
-    it times out, the check reads one small request per day instead and filters here. A result of no matches is a
-    pass only when the whole period was searched; otherwise it is Investigate, with the days that were not read.
+    The sign-in log is slow (about 40 seconds a request), so the check reads one small request per day, newest day
+    first, and filters here; it stops at MaximumMatches. A result of no matches is a pass only when every day was
+    read in full; otherwise it is Investigate, with the days that were not read. A server-side country filter over
+    the whole period was tried and ran into the 300 second HTTP timeout.
     Sign-ins with no recorded country are not counted. Sign-in log access through Graph needs Entra ID P1 or P2.
 
     To change the countries, set the ExpectedCountries parameter to two-letter ISO 3166-1 codes, for example
@@ -72,7 +73,7 @@ function Test-ResSignInsFromUnexpectedCountries {
 
     $asOf = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')
     $daysTable = "| Day (UTC) | Coverage | Records read |`n| --- | --- | --- |`n" + ((@($found.Days) | ForEach-Object { "| $($_.Day) | $($_.State) | $($_.Rows) |" }) -join "`n")
-    $how = if ($found.Mode -eq 'ServerFilter') { 'Searched the whole period with a server-side filter.' } else { "Read the log day by day because the server-side filter was not usable. $($found.FallbackReason)" }
+    $how = 'Read the log day by day.'
     $change = "Expected countries: $expectedText. To change them, set the ExpectedCountries parameter (two-letter codes, see https://www.iso.org/obp/ui/#search/code/). Sign-ins with no recorded country are not counted."
 
     if ($found.Matches.Count -eq 0) {
