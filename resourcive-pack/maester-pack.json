@@ -1,0 +1,49 @@
+{
+  "$schema": "https://maester.dev/schemas/maester-pack-1.0.json",
+  "Id": "resourcive.m365-assessment",
+  "Guid": "b79ce06a-4dac-4641-a673-e5f9421b5099",
+  "Name": "Resourcive M365 Assessment",
+  "Description": "Licence-aware checks for Microsoft 365 tenants: Conditional Access What-If scenarios, Intune and Defender endpoint controls, mail persistence and coverage by assignment, identity gaps.",
+  "Version": "0.1.0",
+  "Publisher": "resourcive",
+  "License": "MIT",
+  "RequiresMaester": ">=3.0",
+  "Code": "RESOURCIVE",
+  "Suites": [
+    "endpoint",
+    "mail",
+    "entra",
+    "conditional-access"
+  ],
+  "Uses": {
+    "Services": [
+      "Graph",
+      "ExchangeOnline"
+    ],
+    "GraphScopes": [
+      "Application.Read.All",
+      "AuditLog.Read.All",
+      "BitLockerKey.ReadBasic.All",
+      "DelegatedAdminRelationship.Read.All",
+      "Device.Read.All",
+      "DeviceManagementConfiguration.Read.All",
+      "DeviceManagementManagedDevices.Read.All",
+      "Directory.Read.All",
+      "GroupMember.Read.All",
+      "Policy.Read.All",
+      "Policy.Read.ConditionalAccess",
+      "Reports.Read.All",
+      "RoleManagement.Read.Directory",
+      "SecurityEvents.Read.All",
+      "User.Read.All"
+    ],
+    "TenantWrites": [],
+    "Network": [
+      "haveibeenpwned.com"
+    ],
+    "Modules": []
+  },
+  "Helpers": [
+    "helpers"
+  ]
+}
