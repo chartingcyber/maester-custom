@@ -15,7 +15,7 @@ First run on a tenant (skips the long-running checks, both Maester's and the pac
 ./Invoke-ResourciveAssessment.ps1 -TenantId contoso.com -SkipLongRunning
 ```
 
-Full run (adds the long-running checks; 25 minutes or more on a larger tenant):
+Full run (adds the long-running checks; roughly 15 to 25 minutes, longer on a larger tenant):
 
 ```powershell
 ./Invoke-ResourciveAssessment.ps1 -TenantId contoso.com
@@ -26,6 +26,17 @@ The script asks for every Graph permission in one sign-in, then:
 1. Opens sign-in prompts for Exchange Online, Security & Compliance and Teams (up to three more).
 2. Runs `Install-MtPack`, which shows what the pack reaches and asks you to approve it. Read it and accept.
 3. Runs Maester's built-in tests and the pack, and writes the report to `./test-results/contoso.com/assessment.html`.
+
+**Where results go:** `./test-results/<TenantId>/`, relative to the folder you run the script from (the repository
+folder if you followed the steps above, so `<repository>/test-results/contoso.com/`). It holds `assessment.html` (open
+this), `assessment.csv`, `assessment.json`, `assessment.md` and `assessment-summary.md`. The folder is named after the
+`-TenantId` you typed, and `test-results` is git-ignored, so client data is not committed. Use `-OutputFolder` to put
+it somewhere else; a second run into the same folder would reuse the same file names, so give each run its own
+folder if you want to keep the earlier report.
+
+**Running against a different tenant:** use that tenant's domain or ID in `-TenantId`, in a fresh `pwsh` window.
+Consent is per tenant, so the permission prompt (or the administrator's approval) happens again, and
+`Install-MtPack` asks for approval again. Each tenant gets its own results folder.
 
 ### Sign-in countries
 
@@ -102,13 +113,17 @@ then stops with instructions (including a consent link for the administrator, wh
 ## Limits
 
 - Delegated consent never gives more than the signed-in role allows. As a Global Reader some checks may still skip as
-  "Not authorized" after approval (for example BitLocker recovery keys). The request only works where the admin consent
-  workflow is on; otherwise the administrator must act directly.
+  "Not authorized" after approval (roles marked "unverified" in the pack README). The request only works where the admin
+  consent workflow is on; otherwise the administrator must act directly.
 - Consent is delegated and per tenant. It covers the signed-in user's access and creates no app registration.
   Unattended runs would need the certificate-based app in the Master Spec, which is separate work.
 - Exchange checks need Exchange roles (View-Only Configuration and View-Only Recipients; Global Reader covers them),
   which no Graph consent grants. Roles marked "unverified" in the pack README still need checking in a tenant.
 - `DelegatedAdminRelationship.Read.All` is only useful from a partner tenant. It is requested anyway so the consent
   is identical everywhere; the GDAP check skips with a reason otherwise.
-- Not yet run against a live tenant. The parse and `-ListScopes` paths are tested; sign-in, the scope check, pack
-  install and the run are not.
+- **Verified once, on the author's own tenant** (an account that could consent): the single Graph sign-in with all 35
+  scopes, the Exchange Online, Security & Compliance and Teams connections, pack install, a full run and the report.
+- **Not yet verified:** the Global Reader consent-request flow and the administrator consent link; `-SkipLongRunning`
+  excluding the pack's long-running checks and `-ExpectedCountries` reaching the check (both added after that run);
+  and the sign-in checks 3005 and 3009 on a tenant with Entra ID P2 (their Defender advanced hunting queries have only
+  been run against test doubles).
