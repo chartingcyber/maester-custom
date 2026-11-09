@@ -88,6 +88,9 @@ function Get-ResCaPersonaSet {
     if ($privileged.Count -gt 0 -and -not $privileged[0].EligibleReadable) {
         $notes.Add('Eligible (PIM) role assignments could not be read, so privileged users who only hold eligible roles are not tested. Entra ID P2 or Governance is needed to read them.')
     }
+    if ($privileged.Count -gt 0 -and @($privileged[0].UnreadableGroups).Count -gt 0) {
+        $notes.Add("The members of $(@($privileged[0].UnreadableGroups).Count) group(s) that hold a privileged role could not be read and are not tested: $(@($privileged[0].UnreadableGroups) -join '; ').")
+    }
     $privilegedIds = @($privileged | ForEach-Object { $_.Id })
 
     $candidates = foreach ($user in ($users | Where-Object { $privilegedIds -notcontains $_.id })) {

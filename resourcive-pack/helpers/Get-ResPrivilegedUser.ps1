@@ -11,7 +11,8 @@ function Get-ResPrivilegedUser {
 
     Returns one object per user: Id, UserPrincipalName, DisplayName, Mail, AccountEnabled, UserType,
     OnPremisesSyncEnabled, Roles (names), ActiveRoles, EligibleRoles, and a property EligibleReadable that is
-    $false when eligible assignments could not be read.
+    $false when eligible assignments could not be read, and UnreadableGroups (group IDs whose members could not be
+    read; those members are missing from the result).
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -55,10 +56,25 @@ function Get-ResPrivilegedUser {
         }
     }
 
+    $unreadableGroups = [System.Collections.Generic.List[string]]::new()
+
     function Get-GroupUserMember {
         param($GroupId)
-        @(Invoke-MtGraphRequest -RelativeUri "groups/$GroupId/transitiveMembers/microsoft.graph.user" -ApiVersion v1.0 -Select id, userPrincipalName, displayName, mail, accountEnabled, userType, onPremisesSyncEnabled |
-                ForEach-Object { $_ | Add-Member -NotePropertyName '@odata.type' -NotePropertyValue '#microsoft.graph.user' -Force -PassThru })
+        try {
+            @(Invoke-MtGraphRequest -RelativeUri "groups/$GroupId/transitiveMembers/microsoft.graph.user" -ApiVersion v1.0 -Select id, userPrincipalName, displayName, mail, accountEnabled, userType, onPremisesSyncEnabled -ErrorAction Stop |
+                    ForEach-Object { $_ | Add-Member -NotePropertyName '@odata.type' -NotePropertyValue '#microsoft.graph.user' -Force -PassThru })
+        } catch {
+            # Some role principals answer 404 on the typed call. Try the untyped one and keep the users.
+            try {
+                @(Invoke-MtGraphRequest -RelativeUri "groups/$GroupId/transitiveMembers" -ApiVersion v1.0 -ErrorAction Stop |
+                        Where-Object { $_.'@odata.type' -eq '#microsoft.graph.user' })
+            } catch {
+                # Never fail every privileged-user check because one group cannot be read; report it instead.
+                $unreadableGroups.Add("$GroupId ($($_.Exception.Message.Split("`
+")[0]))")
+                @()
+            }
+        }
     }
 
     $sources = @(@{ Uri = 'roleManagement/directory/roleAssignments'; Kind = 'Active' })
@@ -82,9 +98,14 @@ function Get-ResPrivilegedUser {
         }
     }
 
+    if ($unreadableGroups.Count -gt 0) {
+        Write-Warning "Members of $($unreadableGroups.Count) role-holding group(s) could not be read and are not included: $($unreadableGroups -join '; ')"
+    }
+
     foreach ($user in $users.Values) {
         $user | Add-Member -NotePropertyName Roles -NotePropertyValue @(@($user.ActiveRoles) + @($user.EligibleRoles) | Select-Object -Unique) -Force
         $user | Add-Member -NotePropertyName EligibleReadable -NotePropertyValue $eligibleReadable -Force
+        $user | Add-Member -NotePropertyName UnreadableGroups -NotePropertyValue $unreadableGroups.ToArray() -Force
         $user
     }
 }

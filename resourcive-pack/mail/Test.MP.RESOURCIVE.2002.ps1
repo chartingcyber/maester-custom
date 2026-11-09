@@ -70,7 +70,7 @@ function Test-ResPrivilegedUsersStrictPreset {
     }
 
     $notStrict = @($rows | Where-Object { $_.Profile -ne 'Strict' })
-    $eligibleNote = if ($privileged.Count -gt 0 -and -not $privileged[0].EligibleReadable) { "`n`nEligible (PIM) role assignments could not be read (Entra ID P2 not available), so only active role holders were evaluated." } else { '' }
+    $eligibleNote = Get-ResPrivilegedUserNote -User $privileged
     $summary = "$($rows.Count - $notStrict.Count) of $($rows.Count) privileged users with a mailbox are covered by the Strict preset security policy, as of $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC.$eligibleNote"
 
     if ($notStrict.Count -eq 0) {

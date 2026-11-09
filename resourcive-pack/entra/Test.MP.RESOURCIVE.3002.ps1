@@ -67,7 +67,7 @@ function Test-ResPrivilegedPhishingResistantMethod {
 
     $failing = @($rows | Where-Object { $_.Ok -eq $false })
     $unknown = @($rows | Where-Object { $null -eq $_.Ok })
-    $eligibleNote = if ($privileged.Count -gt 0 -and -not $privileged[0].EligibleReadable) { ' Eligible (PIM) role assignments could not be read (Entra ID P2 not available), so only active role holders were evaluated.' } else { '' }
+    $eligibleNote = Get-ResPrivilegedUserNote -User $privileged
     $summary = "$($rows.Count - $failing.Count - $unknown.Count) of $($rows.Count) privileged users have a phishing-resistant method registered, as of $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC.$eligibleNote"
 
     if ($failing.Count -eq 0 -and $unknown.Count -eq 0) {

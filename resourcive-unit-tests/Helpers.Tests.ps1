@@ -177,6 +177,39 @@ Describe 'Get-ResPrivilegedUser' {
         (@(Get-ResPrivilegedUser -ActiveOnly)[0]).EligibleReadable | Should -BeTrue
     }
 
+    Context 'a role-holding group that answers 404' {
+        BeforeEach {
+            $script:untyped = $true
+            Mock Invoke-MtGraphRequest {
+                switch -Wildcard ($RelativeUri) {
+                    'roleManagement/directory/roleDefinitions' { @([pscustomobject]@{ id = 'r1'; displayName = 'Global Administrator'; isPrivileged = $true }) }
+                    'roleManagement/directory/roleAssignments' {
+                        @([pscustomobject]@{ roleDefinitionId = 'r1'; principal = [pscustomobject]@{ '@odata.type' = '#microsoft.graph.user'; id = 'u1'; userPrincipalName = 'a@c.com' } },
+                            [pscustomobject]@{ roleDefinitionId = 'r1'; principal = [pscustomobject]@{ '@odata.type' = '#microsoft.graph.group'; id = 'g1' } })
+                    }
+                    'groups/g1/transitiveMembers/*' { throw 'Response status code does not indicate success: NotFound (Not Found).' }
+                    'groups/g1/transitiveMembers' {
+                        if ($script:untyped) { @([pscustomobject]@{ '@odata.type' = '#microsoft.graph.user'; id = 'u2'; userPrincipalName = 'b@c.com' }, [pscustomobject]@{ '@odata.type' = '#microsoft.graph.group'; id = 'g2' }) }
+                        else { throw 'Response status code does not indicate success: NotFound (Not Found).' }
+                    }
+                }
+            }
+        }
+        It 'falls back to the untyped member list and keeps the users' {
+            $users = @(Get-ResPrivilegedUser -ActiveOnly)
+            ($users.UserPrincipalName | Sort-Object) | Should -Be @('a@c.com', 'b@c.com')
+            @($users[0].UnreadableGroups).Count | Should -Be 0
+        }
+        It 'reports the group instead of failing when it cannot be read at all' {
+            $script:untyped = $false
+            $users = @(Get-ResPrivilegedUser -ActiveOnly -WarningVariable w -WarningAction SilentlyContinue)
+            $users.UserPrincipalName | Should -Be @('a@c.com')
+            $users[0].UnreadableGroups[0] | Should -BeLike 'g1 (*NotFound*'
+            ($w -join ' ') | Should -BeLike '*g1*'
+            (Get-ResPrivilegedUserNote -User $users) | Should -BeLike '*could not be read*g1*'
+        }
+    }
+
     Context 'Get-ResGraphPage' {
         It 'unwraps a raw response, reports more rows and accepts hashtables and plain rows' {
             $page = Get-ResGraphPage ([pscustomobject]@{ value = @([pscustomobject]@{ id = 1 }, [pscustomobject]@{ id = 2 }); '@odata.nextLink' = 'next' })
