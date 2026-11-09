@@ -9,7 +9,7 @@ Start PowerShell (`pwsh`) in the repository folder and run the script from insid
 pwsh
 ```
 
-First run on a tenant (skips the long-running checks, both Maester's and the pack's: sign-in log searches, inbox rule scans, the application permission scan and the Conditional Access What-If scenarios):
+First run on a tenant (skips the long-running checks, both Maester's and the pack's: the inbox rule scan, the application permission scan and the Conditional Access What-If scenarios):
 
 ```powershell
 ./Invoke-ResourciveAssessment.ps1 -TenantId contoso.com -SkipLongRunning
@@ -37,7 +37,7 @@ the client does business elsewhere, say so with `-ExpectedCountries`, using two-
 ./Invoke-ResourciveAssessment.ps1 -TenantId contoso.com -ExpectedCountries GB, IE
 ```
 
-The list replaces the default, so include US or CA if they still apply. The result states which countries were
+The check uses Defender advanced hunting, which needs **Entra ID P2** (and the `ThreatHunting.Read.All` permission, already in Maester's default consent). Without P2 it is Investigate and the result gives the steps to check the sign-in log by hand in the Entra admin center. The list replaces the default, so include US or CA if they still apply. The result states which countries were
 expected. Sign-ins with no recorded country are not counted. To keep the setting for a client, put it in a config file
 instead: `{ "TestSettings": [{ "Id": "MP.RESOURCIVE.3005", "Parameters": { "ExpectedCountries": ["GB", "IE"] } }] }`.
 

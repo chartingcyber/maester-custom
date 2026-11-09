@@ -35,6 +35,7 @@
       "Reports.Read.All",
       "RoleManagement.Read.Directory",
       "SecurityEvents.Read.All",
+      "ThreatHunting.Read.All",
       "User.Read.All"
     ],
     "TenantWrites": [],

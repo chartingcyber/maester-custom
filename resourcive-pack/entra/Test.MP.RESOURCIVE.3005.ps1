@@ -4,15 +4,17 @@ function Test-ResSignInsFromUnexpectedCountries {
     Checks that successful sign-ins in the last few days came only from the countries where the organization does business.
 
     .DESCRIPTION
-    Searches the Entra sign-in log for successful interactive sign-ins from any country outside ExpectedCountries
-    (default US and CA) and stops at the first MaximumMatches (default 10). Any match fails the check and lists the
-    users, countries and apps. A sign-in from an unexpected country is a sign of a stolen password or token.
+    Searches the Defender advanced hunting table EntraIdSignInEvents (Microsoft Entra interactive and non-interactive
+    sign-ins) for successful sign-ins from any country outside ExpectedCountries (default US and CA) and stops at
+    the first MaximumMatches (default 10). Any match fails the check and lists the user, country, app, logon type and
+    IP address. A sign-in from an unexpected country is a sign of a stolen password or token. Non-interactive
+    sign-ins made for a user by Microsoft services can come from Microsoft datacenters in other countries, so check
+    the logon type and app before treating a match as an attack.
 
-    The sign-in log is slow (about 40 seconds a request), so the check reads one small request per day, newest day
-    first, and filters here; it stops at MaximumMatches. A result of no matches is a pass only when every day was
-    read in full; otherwise it is Investigate, with the days that were not read. A server-side country filter over
-    the whole period was tried and ran into the 300 second HTTP timeout.
-    Sign-ins with no recorded country are not counted. Sign-in log access through Graph needs Entra ID P1 or P2.
+    The table needs Microsoft Entra ID P2 and access to Defender advanced hunting. When the tenant has no P2, or
+    the query cannot run, or it finds no sign-ins at all, the result is Investigate with the reason and the steps
+    to do the same check in the Microsoft Entra admin center. It is never a pass in those cases.
+    Sign-ins with no recorded country are not counted.
 
     To change the countries, set the ExpectedCountries parameter to two-letter ISO 3166-1 codes, for example
     US, CA, GB. The list of codes is at https://www.iso.org/obp/ui/#search/code/.
@@ -30,9 +32,7 @@ function Test-ResSignInsFromUnexpectedCountries {
         Mitre        = ('T1078.004', 'T1110.003'),
         Control      = ('nist-800-53-r5:SI-4', 'nist-800-53-r5:AC-2(12)'),
         Service      = 'Graph',
-        License      = 'AAD_PREMIUM',
-        Permission   = 'Graph:Scope:AuditLog.Read.All',
-        LongRunning
+        Permission   = 'Graph:Scope:ThreatHunting.Read.All'
     )]
     [CmdletBinding()]
     [OutputType([bool])]
@@ -41,52 +41,49 @@ function Test-ResSignInsFromUnexpectedCountries {
         [ValidatePattern('^[A-Za-z]{2}$')]
         [string[]] $ExpectedCountries = @('US', 'CA'),
 
-        # How many days of sign-ins to search, including today.
+        # How many days of sign-ins to search. Advanced hunting keeps 30 days.
         [ValidateRange(1, 30)]
         [int] $LookbackDays = 7,
 
         # Stop after this many sign-ins from unexpected countries.
         [ValidateRange(1, 50)]
-        [int] $MaximumMatches = 10,
-
-        # If the check has to read day by day: the most records to read for each day. The newest records are read first.
-        [ValidateRange(50, 1000)]
-        [int] $MaximumSignInsPerDay = 200,
-
-        # If the check has to read day by day: stop starting new days after this many seconds.
-        [ValidateRange(30, 3600)]
-        [int] $TimeBudgetSeconds = 600
+        [int] $MaximumMatches = 10
     )
-
-    Assert-ResLicense -Name 'Microsoft Entra ID P1' -ServicePlan (Get-ResServicePlanName -Product EntraP1)
 
     $expected = @($ExpectedCountries | ForEach-Object { $_.Trim().ToUpperInvariant() } | Where-Object { $_ })
     if ($expected.Count -eq 0) { $expected = @('US', 'CA') }
     $expectedText = $expected -join ', '
-
-    $found = Find-ResSignIn -Kind Country -ExpectedCountry $expected -LookbackDays $LookbackDays -MaximumMatches $MaximumMatches -MaximumSignInsPerDay $MaximumSignInsPerDay -TimeBudgetSeconds $TimeBudgetSeconds
-
-    $unread = @($found.Days | Where-Object { $_.State -like 'Not read*' })
-    if ($found.Mode -eq 'PerDay' -and $unread.Count -eq @($found.Days).Count) {
-        Add-MtTestResultDetail -SkippedBecause Custom -SkippedCustomReason "Not assessed: no day of the sign-in log could be read within the time budget of $TimeBudgetSeconds seconds, or the requests timed out."
-    }
-
-    $asOf = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')
-    $daysTable = "| Day (UTC) | Coverage | Records read |`n| --- | --- | --- |`n" + ((@($found.Days) | ForEach-Object { "| $($_.Day) | $($_.State) | $($_.Rows) |" }) -join "`n")
-    $how = 'Read the log day by day.'
     $change = "Expected countries: $expectedText. To change them, set the ExpectedCountries parameter (two-letter codes, see https://www.iso.org/obp/ui/#search/code/). Sign-ins with no recorded country are not counted."
 
-    if ($found.Matches.Count -eq 0) {
-        if ($found.Complete) {
-            Add-MtTestResultDetail -Result "Well done. No successful interactive sign-in from outside $expectedText in the last $LookbackDays days, as of $asOf UTC. $how`n`n$change"
-            return $true
+    $reason = $null
+    $found = $null
+    if ((Test-ResLicense -ServicePlan (Get-ResServicePlanName -Product EntraP2)) -eq $false) {
+        $reason = 'the tenant does not have Microsoft Entra ID P2, which the advanced hunting sign-in table needs.'
+    } else {
+        try {
+            $found = Find-ResSignInHunting -Kind Country -ExpectedCountry $expected -LookbackDays $LookbackDays -MaximumMatches $MaximumMatches
+        } catch {
+            $reason = "the advanced hunting query could not run ($((([string]$_.Exception.Message) -split "`n")[0].Trim())). It needs Entra ID P2, the ThreatHunting.Read.All permission and a role with Defender advanced hunting access, such as Security Reader."
         }
-        Add-MtTestResultDetail -Result "No sign-in from outside $expectedText was found in the records read, but this is not a pass: coverage is incomplete. $how Raise TimeBudgetSeconds or MaximumSignInsPerDay, or check the sign-in log in the Entra admin center.`n`n$change`n`n$daysTable" -Investigate
+        if (-not $reason -and $found.Total -eq 0) {
+            $reason = "the advanced hunting table returned no successful sign-ins for the last $LookbackDays days, so it cannot confirm that none came from elsewhere."
+        }
+    }
+    if ($reason) {
+        Add-MtTestResultDetail -Result "$(Get-ResSignInManualCheck -Kind Country -Reason $reason -ExpectedText $expectedText -LookbackDays $LookbackDays)`n`n$change" -Investigate
         return $false
     }
 
+    $asOf = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')
+    $how = "Searched $($found.Total) successful sign-ins from the last $LookbackDays days (interactive and non-interactive, oldest $($found.Oldest)) with Defender advanced hunting (EntraIdSignInEvents)."
+
+    if ($found.Matches.Count -eq 0) {
+        Add-MtTestResultDetail -Result "Well done. No successful sign-in from outside $expectedText, as of $asOf UTC. $how`n`n$change"
+        return $true
+    }
+
     $limit = if ($found.AtLeast) { "At least $($found.Matches.Count) (the search stops at $MaximumMatches)" } else { "$($found.Matches.Count)" }
-    $table = "| When (UTC) | User | Country | App | IP address |`n| --- | --- | --- | --- | --- |`n" + ((@($found.Matches) | ForEach-Object { "| $($_.createdDateTime) | $($_.userPrincipalName) | $($_.location.countryOrRegion) | $($_.appDisplayName) | $($_.ipAddress) |" }) -join "`n")
-    Add-MtTestResultDetail -Result "$limit successful interactive sign-in(s) came from outside $expectedText in the last $LookbackDays days, as of $asOf UTC. $how`n`n$table`n`n$change"
+    $table = "| When (UTC) | User | Country | App | Logon type | IP address |`n| --- | --- | --- | --- | --- | --- |`n" + ((@($found.Matches) | ForEach-Object { "| $($_.createdDateTime) | $($_.userPrincipalName) | $($_.location.countryOrRegion) | $($_.appDisplayName) | $($_.logonType) | $($_.ipAddress) |" }) -join "`n")
+    Add-MtTestResultDetail -Result "$limit successful sign-in(s) came from outside $expectedText in the last $LookbackDays days, as of $asOf UTC. $how`n`n$table`n`n$change"
     return $false
 }

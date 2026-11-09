@@ -94,9 +94,9 @@ Invoke-Maester -Pack RESOURCIVE -IncludeLongRunning -OutputFolder ./test-results
 a digest of its files in `maester-packs.lock.json`, beside the `maester-config.json` that Maester finds from the current
 folder, or in `~/.maester` when there is none. `Invoke-Maester` runs the pack only while its files match that lock file,
 so run `Install-MtPack` again from the same folder whenever the pack changes. `Invoke-Maester` then runs
-the built-in tests and the `RESOURCIVE` pack, including the long-running checks (sign-in log reads and inbox rule
-scans). A full run took about 25 minutes on a tenant of roughly 950 users and 3,600 devices; expect longer in a larger tenant,
-because the sign-in log is slow and little progress shows for minutes at a time while it is read.
+the built-in tests and the `RESOURCIVE` pack, including the long-running checks (inbox rule scans, the application
+permission scan and the Conditional Access scenarios). A full run took about 25 minutes on a tenant of roughly 950 users and 3,600 devices; expect longer in a larger tenant,
+because little progress shows for minutes at a time during the longer scans.
 
 ### 6. Read the results
 
@@ -203,11 +203,11 @@ Roles marked (unverified) were not confirmed against a tenant and need testing.
 | 3002 | Privileged users have a phishing-resistant method registered | High | Entra P1 | AuditLog.Read.All, RoleManagement.Read.Directory |
 | 3003 | Default cross-tenant settings do not trust external MFA/device claims | High | none (unverified) | Policy.Read.All |
 | 3004 | GDAP relationships with privileged roles | Medium | none | **Partner side only** (DelegatedAdminRelationship.Read.All) or a partner export file |
-| 3005 | Successful sign-ins only from expected countries, default US and CA (long-running) | Medium | Entra P1 | AuditLog.Read.All |
+| 3005 | Successful sign-ins only from expected countries, default US and CA. Defender advanced hunting; Investigate with manual steps without Entra ID P2 | Medium | Entra P2 (for the automatic check) | ThreatHunting.Read.All and a role with advanced hunting access, such as Security Reader |
 | 3006 | HIBP breach and stealer log exposure of privileged users | High | HIBP Core/Pro | HIBP API key in `RESOURCIVE_HIBP_API_KEY`; written client authorization |
 | 3007 | Secure Score gaps (Info) | Info | none | SecurityEvents.Read.All |
 | 3008 | Broad Graph application permissions on third-party or owner-less apps (long-running) | High | none | Application.Read.All, Directory.Read.All |
-| 3009 | Successful legacy-protocol sign-ins, interactive and non-interactive (long-running) | High | Entra P1 | AuditLog.Read.All |
+| 3009 | Successful legacy-protocol sign-ins, interactive and non-interactive. Defender advanced hunting; Investigate with manual steps without Entra ID P2 | High | Entra P2 (for the automatic check) | ThreatHunting.Read.All and a role with advanced hunting access, such as Security Reader |
 | CA | Conditional Access What-If scenarios (family, long-running) | per row | Entra P1 (risk axes need P2) | Policy.Read.All or Policy.Read.ConditionalAccess, User.Read.All, GroupMember.Read.All, RoleManagement.Read.Directory |
 
 ### Conditional Access What-If family (`MP.RESOURCIVE.CA`)
@@ -241,7 +241,7 @@ Investigate instead of guessing).
 
 ## Checking the sign-in log by hand
 
-Both sign-in checks can be done in the Microsoft Entra admin center, which is the quickest way for 3009. Open
+When a sign-in check is Investigate because the tenant has no Entra ID P2, its result carries these steps. Open
 **Entra ID > Monitoring & health > Sign-in logs** (https://entra.microsoft.com), then:
 
 1. Set **Date** to the last 7 days and add the filter **Status: Success**.
@@ -256,9 +256,7 @@ Both sign-in checks can be done in the Microsoft Entra admin center, which is th
 
 If the tenant sends its sign-in logs to Log Analytics (a diagnostic setting, with an Azure workspace), the
 *Sign-ins using legacy authentication* workbook (Monitoring & health > Workbooks) shows legacy sign-ins in seconds.
-With **Entra ID P2** the Defender advanced hunting table `EntraIdSignInEvents` holds interactive and non-interactive
-sign-ins and answers both questions in one fast query, but this pack does not use it: the tenants it targets often
-have only Entra ID P1.
+With **Entra ID P2** the checks do all of this automatically with one fast query.
 
 ## Known limits
 
@@ -269,11 +267,12 @@ empty privileged-user list, most likely because `isPrivileged` is returned only 
 fix has not been confirmed in a tenant yet). Still to confirm: the settings catalog definition IDs (which Microsoft can
 rename) and the roles marked "unverified" above.
 
-The sign-in log is slow (about 40 seconds for a request, whatever the size), so 3005 reads one small request per day,
-newest first, and stops at the first 10 matches; a full 7 days takes about 4 to 5 minutes. Any day not read in full is
-listed and a result with no matches is then Investigate, never a pass. A single server-side filter over the whole period
-ran into the 300 second HTTP timeout in testing, so it is not used by default. 3009 is **off by default** and skips as
-"Not assessed": legacy protocols usually sign in non-interactively, the v1.0 log returns only interactive sign-ins, and
-the beta non-interactive log is large and unproven here. Set the `SearchLog` parameter to try it. Until then, check by
-hand (next section). Secure Score (3007) needs `SecurityEvents.Read.All`, which
+The sign-in checks (3005, 3009) use the Defender advanced hunting table `EntraIdSignInEvents` (interactive and
+non-interactive sign-ins, kept 30 days) through `security/runHuntingQuery`: two small queries that return in seconds.
+It needs **Microsoft Entra ID P2** and a role with advanced hunting access (Security Reader or Global Reader).
+The Graph sign-in log is not used: it takes about 40 seconds a request, a filtered search over the week timed out
+at the 300 second limit in testing, and the v1.0 log omits the non-interactive sign-ins where legacy protocols
+appear. Without P2, or when the query cannot run, or when the table holds no sign-ins at all, both checks are
+**Investigate** (never a pass, never a silent skip) and the result says why and gives the manual steps below. The
+table's column names, the `LogonType` values and the `ClientAppUsed` values have not been run against a tenant yet. Secure Score (3007) needs `SecurityEvents.Read.All`, which
 Maester's default Graph consent does not include: consent to it when you connect.
