@@ -8,6 +8,10 @@ Every check is read-only. Nothing here changes a tenant.
 
 ## Running it
 
+The quickest way is `Invoke-ResourciveAssessment.ps1` at the repository root (see [`RESOURCIVE.md`](../RESOURCIVE.md)),
+which does steps 3 to 5 below in one command and asks for every permission in one sign-in. The steps below are the
+manual equivalent.
+
 This section takes someone who has never run Maester from nothing to a finished report. It runs every built-in
 Maester test and every check in this pack, against one tenant, read-only.
 
@@ -122,7 +126,13 @@ Checks marked *long-running* run with `Invoke-Maester` only when `-IncludeLongRu
 
 ### Parameters worth setting
 
-- `ExpectedCountries` (3005): without it the sign-in country check cannot decide and returns Investigate.
+- `ExpectedCountries` (3005): two-letter ISO 3166-1 codes of the countries where sign-ins are expected. **Default: US and
+  CA.** The check fails on any successful interactive sign-in from another country and stops at the first 10 it finds
+  (`MaximumMatches`). Change it with `./Invoke-ResourciveAssessment.ps1 -TenantId <tenant> -ExpectedCountries GB, IE`, or
+  per client in a config file: `{ "TestSettings": [{ "Id": "MP.RESOURCIVE.3005", "Parameters": { "ExpectedCountries":
+  ["GB", "IE"] } }] }`, or with `-Parameter @{ ExpectedCountries = 'GB', 'IE' }` on `Invoke-MtTest`. The list replaces the
+  default, so keep US or CA in it if they still apply. Look codes up at
+  [iso.org](https://www.iso.org/obp/ui/#search/code/).
 - `ClientAuthorized` (3006): the Have I Been Pwned check sends the tenant's domain names to a third party and is skipped
   until the organization's written authorization is recorded; it also needs an API key in `RESOURCIVE_HIBP_API_KEY`.
 - `PartnerExportPath` (3004): GDAP relationships are visible only from the partner tenant; give a JSON export or run it
@@ -170,14 +180,14 @@ Roles marked (unverified) were not confirmed against a tenant and need testing.
 | ID | Check | Severity | Licence | Needs beyond Global Reader |
 | --- | --- | --- | --- | --- |
 | 1001 | Windows LAPS enabled in Entra | Medium | none | Policy.Read.All |
-| 1002 | Intune LAPS policy assigned to all devices, rotation within limit | Medium | Intune P1 | DeviceManagementConfiguration.Read.All |
+| 1002 | Intune LAPS policy assigned to all devices, rotation within limit (an unset age counts as the Windows default of 30 days) | Medium | Intune P1 | DeviceManagementConfiguration.Read.All |
 | 1003 | USB and removable storage blocked on all Windows devices | Medium | Intune P1 | DeviceManagementConfiguration.Read.All |
 | 1004 | Untrusted scripts blocked (ASR script rules or App Control) | High | Intune P1 + Defender for Business/Endpoint | DeviceManagementConfiguration.Read.All |
 | 1005 | Every ASR rule in Block mode for all devices | High | Intune P1 + Defender for Business/Endpoint | DeviceManagementConfiguration.Read.All |
 | 1006 | Defender Antivirus protections enforced by policy | High | Intune P1 | DeviceManagementConfiguration.Read.All |
 | 1007 | Device state: real-time, tamper protection, signatures | High | Intune P1 | DeviceManagementManagedDevices.Read.All |
-| 1008 | BitLocker policy coverage and device encryption state | High | Intune P1 | both of the above |
-| 1009 | BitLocker recovery key escrowed in Entra | Medium | Intune P1 | BitLockerKey.ReadBasic.All and a role that may read recovery keys (unverified) |
+| 1008 | BitLocker policy coverage and device encryption state. Devices that have not synced for 30 days are left out; if none is left the result is Investigate, never a pass | High | Intune P1 | both of the above |
+| 1009 | BitLocker recovery key escrowed in Entra | Medium | Intune P1 | BitLockerKey.ReadBasic.All and Global Reader, Security Reader, Security Administrator, Helpdesk Administrator, Intune Administrator or Cloud Device Administrator (Microsoft's list for the recovery key list call; the call returned no error as Global Administrator, but no key has been read yet) |
 | 1010 | Windows compliance policies reach all devices and block | High | Intune P1 | DeviceManagementConfiguration.Read.All |
 | 1011 | Conditional Access requires a compliant device (scope) | High | Entra P1 + Intune P1 | Policy.Read.All |
 | 1012 | No unmanaged joined device signed in recently | Medium | none | Device.Read.All |
@@ -189,15 +199,15 @@ Roles marked (unverified) were not confirmed against a tenant and need testing.
 | 2005 | Inbox rules: external forward, hidden mail (long-running) | High | Exchange | Exchange role such as View-Only Recipients or Mail Recipients (unverified) |
 | 2006 | Transport rules do not copy mail externally | High | Exchange | none expected |
 | 2007 | Inbound connectors restricted; outbound connectors listed | High | Exchange | none expected |
-| 3001 | Recent security changes in the audit log (Info) | Info | none | AuditLog.Read.All |
+| 3001 | Recent security changes in the audit log (Info; changes made by the account running the assessment are marked *) | Info | none | AuditLog.Read.All |
 | 3002 | Privileged users have a phishing-resistant method registered | High | Entra P1 | AuditLog.Read.All, RoleManagement.Read.Directory |
 | 3003 | Default cross-tenant settings do not trust external MFA/device claims | High | none (unverified) | Policy.Read.All |
 | 3004 | GDAP relationships with privileged roles | Medium | none | **Partner side only** (DelegatedAdminRelationship.Read.All) or a partner export file |
-| 3005 | Sign-ins only from expected countries (long-running) | Medium | Entra P1 | AuditLog.Read.All |
+| 3005 | Successful sign-ins only from expected countries, default US and CA (long-running) | Medium | Entra P1 | AuditLog.Read.All |
 | 3006 | HIBP breach and stealer log exposure of privileged users | High | HIBP Core/Pro | HIBP API key in `RESOURCIVE_HIBP_API_KEY`; written client authorization |
 | 3007 | Secure Score gaps (Info) | Info | none | SecurityEvents.Read.All |
 | 3008 | Broad Graph application permissions on third-party or owner-less apps (long-running) | High | none | Application.Read.All, Directory.Read.All |
-| 3009 | Successful legacy-protocol sign-ins | High | Entra P1 | AuditLog.Read.All |
+| 3009 | Successful legacy-protocol sign-ins, interactive and non-interactive (long-running) | High | Entra P1 | AuditLog.Read.All |
 | CA | Conditional Access What-If scenarios (family, long-running) | per row | Entra P1 (risk axes need P2) | Policy.Read.All or Policy.Read.ConditionalAccess, User.Read.All, GroupMember.Read.All, RoleManagement.Read.Directory |
 
 ### Conditional Access What-If family (`MP.RESOURCIVE.CA`)
@@ -238,6 +248,11 @@ empty privileged-user list, most likely because `isPrivileged` is returned only 
 fix has not been confirmed in a tenant yet). Still to confirm: the settings catalog definition IDs (which Microsoft can
 rename) and the roles marked "unverified" above.
 
-Reading the sign-in log is slow (tens of seconds for a request), so the sign-in checks read one request per day (3005)
-or one capped request (3009) and say how much they covered. Secure Score (3007) needs `SecurityEvents.Read.All`, which
+The sign-in log is slow (tens of seconds for a request). The sign-in checks (3005, 3009) therefore ask Graph for the
+matching sign-ins only, in one request over the 7 days, and stop at the first 10 matches. If Graph refuses that filter or
+it times out, they read one small request per day and filter in PowerShell; any day not read in full is listed, and a
+result with no matches is then Investigate, never a pass. 3009 searches the beta sign-in log for non-interactive
+sign-ins as well, because legacy protocols usually sign in non-interactively and the v1.0 log does not return those;
+if the beta log cannot be read it says so and cannot pass. Neither the server-side filters nor the beta event filter have
+been run against a tenant yet. Secure Score (3007) needs `SecurityEvents.Read.All`, which
 Maester's default Graph consent does not include: consent to it when you connect.

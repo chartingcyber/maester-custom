@@ -2,14 +2,49 @@
 
 ## Quickstart
 
-Open a **fresh** `pwsh` window (nothing connected to Exchange, Teams or Azure yet) in the repository folder, and
-replace `contoso.com` with the client's domain or tenant ID. This is the whole recommended usage:
+Start PowerShell (`pwsh`) in the repository folder and run the script from inside it. Use a **fresh** window
+(nothing connected to Exchange, Teams or Azure yet). Replace `contoso.com` with the client's domain or tenant ID.
+
+```bash
+pwsh
+```
+
+First run on a tenant (skips the long-running checks, both Maester's and the pack's: sign-in log searches, inbox rule scans, the application permission scan and the Conditional Access What-If scenarios):
+
+```powershell
+./Invoke-ResourciveAssessment.ps1 -TenantId contoso.com -SkipLongRunning
+```
+
+Full run (adds the long-running checks; 25 minutes or more on a larger tenant):
 
 ```powershell
 ./Invoke-ResourciveAssessment.ps1 -TenantId contoso.com
 ```
 
-It asks for every permission in one sign-in. What happens next depends on who runs it:
+The script asks for every Graph permission in one sign-in, then:
+
+1. Opens sign-in prompts for Exchange Online, Security & Compliance and Teams (up to three more).
+2. Runs `Install-MtPack`, which shows what the pack reaches and asks you to approve it. Read it and accept.
+3. Runs Maester's built-in tests and the pack, and writes the report to `./test-results/contoso.com/assessment.html`.
+
+### Sign-in countries
+
+The sign-in country check (3005) fails on any successful sign-in from outside **US and CA** (the first 10 it finds). If
+the client does business elsewhere, say so with `-ExpectedCountries`, using two-letter ISO 3166-1 codes
+([country code lookup](https://www.iso.org/obp/ui/#search/code/)):
+
+```powershell
+./Invoke-ResourciveAssessment.ps1 -TenantId contoso.com -ExpectedCountries GB, IE
+```
+
+The list replaces the default, so include US or CA if they still apply. The result states which countries were
+expected. Sign-ins with no recorded country are not counted. To keep the setting for a client, put it in a config file
+instead: `{ "TestSettings": [{ "Id": "MP.RESOURCIVE.3005", "Parameters": { "ExpectedCountries": ["GB", "IE"] } }] }`.
+
+A service you cannot sign in to is not fatal: its checks skip with the reason. To only sign in and check scopes,
+without running any tests, add `-GraphOnly`.
+
+What happens at the permission prompt depends on who runs it:
 
 - **A Global Administrator** (or Cloud Application Administrator) sees one consent prompt. Tick "Consent on behalf of
   your organization" and the run continues. Hand the script to an administrator and this is all they do.
@@ -19,11 +54,10 @@ It asks for every permission in one sign-in. What happens next depends on who ru
 - **Need results before approval?** Add `-AllowPartial`. It connects with Maester's own scopes only, so the pack's
   checks that need the extra scopes skip as "Not authorized".
 
-Then open `./test-results/contoso.com/assessment.html`. A full run takes about 25 minutes or more on a larger tenant.
+If Graph sign-in says "Method not found", Exchange or Teams was already loaded in that window: open a fresh `pwsh`.
 
 That one command runs the Resourcive M365 assessment against a client tenant, in place of `Connect-Maester`,
-`Install-MtPack` and `Invoke-Maester`. The checks are in [`resourcive-pack`](resourcive-pack/README.md) (each check's licence and access needs are listed
-there); the design is in [`M365 Assessment Toolkit Master Spec.md`](<M365 Assessment Toolkit Master Spec.md>).
+`Install-MtPack` and `Invoke-Maester`. The checks are in [`resourcive-pack`](resourcive-pack/README.md) (each check's licence and access needs are listed there); the design is in [`M365 Assessment Toolkit Master Spec.md`](<M365 Assessment Toolkit Master Spec.md>).
 
 ## Why a script instead of the normal commands
 
@@ -59,7 +93,8 @@ then stops with instructions (including a consent link for the administrator, wh
 | `-ConnectOnly` | Connect everything, then stop, leaving the session ready for your own `Invoke-Maester`. |
 | `-Service` | Services after Graph. Default `ExchangeOnline, SecurityCompliance, Teams`. |
 | `-OutputFolder` | Results folder. Default `./test-results/<TenantId>`. |
-| `-SkipLongRunning` | Leave out the sign-in log and inbox rule scans. |
+| `-SkipLongRunning` | Leave out the long-running checks: Maester's own and the pack's (found from the `LongRunning` flag on each check). |
+| `-ExpectedCountries` | Two-letter country codes for the sign-in country check. Default `US, CA`. |
 | `-Force` | Run even if a connected token lacks some scopes. |
 | `-UseDeviceCode`, `-PackPath` | Device code sign-in; a different pack folder. |
 | `-ListScopes` | Print the combined scope list without signing in. |

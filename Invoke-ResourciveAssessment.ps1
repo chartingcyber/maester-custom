@@ -24,11 +24,14 @@ Connect (steps 1 to 3) and stop, leaving the session connected for your own Invo
 .PARAMETER Service
 Services to connect after Graph. Default: ExchangeOnline, SecurityCompliance, Teams.
 
+.PARAMETER ExpectedCountries
+Two-letter ISO 3166-1 country codes where sign-ins are expected, for example GB, IE. Default: US, CA. The sign-in country check (3005) fails on any successful sign-in from another country. Codes: https://www.iso.org/obp/ui/#search/code/
+
 .PARAMETER OutputFolder
 Where results go. Default: ./test-results/<TenantId>.
 
 .PARAMETER SkipLongRunning
-Leave out the long-running checks (sign-in log and inbox rule scans).
+Leave out the long-running checks: Maester's own, and the pack's (found from the LongRunning flag in each check). Naming a pack would otherwise run its long-running checks.
 
 .PARAMETER AllowPartial
 When the account cannot get admin approval (a Global Reader), connect with Maester's own scopes only and run, so the pack's checks that need extra scopes skip as "Not authorized". Without it the script requests approval and stops.
@@ -61,6 +64,7 @@ param(
     [switch] $SkipLongRunning,
     [switch] $Force,
     [switch] $AllowPartial,
+    [ValidatePattern('^[A-Za-z]{2}$')] [string[]] $ExpectedCountries,
     [switch] $UseDeviceCode,
     [string] $PackPath = (Join-Path $PSScriptRoot 'resourcive-pack'),
     [switch] $ListScopes
@@ -80,7 +84,7 @@ $psd1 = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'powershell/Maester.
 if (-not $psd1) { throw 'The cloned module powershell/Maester.psd1 was not found. Run this script from the cloned repository.' }
 $loaded = Get-Module Maester
 if (-not $loaded -or -not $loaded.Path.StartsWith((Split-Path $psd1 -Parent))) {
-    Import-Module $psd1 -Force
+    Import-Module $psd1 -Force -Global
 }
 $maesterScopes = @(Get-MtGraphScope)
 $required = @($maesterScopes + $packScopes | Sort-Object -Unique)
@@ -178,7 +182,32 @@ $run = @{
     OutputFolderFileName  = 'assessment'
     ExportCsv             = $true
 }
-if (-not $SkipLongRunning) { $run['IncludeLongRunning'] = $true }
+if ($ExpectedCountries) {
+    # Per-run test parameters go in as a config object merged over the repository config, which is listed first
+    # because naming a config here stops Maester reading the config files next to the tests.
+    $base = Join-Path $PSScriptRoot 'tests/maester-config.json'
+    $override = @{ TestSettings = @(@{ Id = 'MP.RESOURCIVE.3005'; Parameters = @{ ExpectedCountries = @($ExpectedCountries | ForEach-Object { $_.ToUpperInvariant() }) } }) }
+    $run['Config'] = @(@(if (Test-Path -LiteralPath $base) { $base }) + $override)
+    Write-Host "Expected sign-in countries: $((@($ExpectedCountries | ForEach-Object { $_.ToUpperInvariant() })) -join ', ')" -ForegroundColor Yellow
+}
+if ($SkipLongRunning) {
+    # Naming a pack lifts the long-running exclusion for that pack, so -IncludeLongRunning being absent is not
+    # enough: exclude the pack's own long-running checks by ID. They are found from the LongRunning flag in each
+    # check's [MaesterTest()] attribute, so a check tagged later is skipped without changing this script.
+    $skipIds = foreach ($file in (Get-ChildItem -LiteralPath $PackPath -Recurse -Filter 'Test.*.ps1' -File)) {
+        $attribute = [regex]::Match((Get-Content -LiteralPath $file.FullName -Raw), '(?ms)\[MaesterTest\((.*?)\)\]')
+        if ($attribute.Success -and $attribute.Groups[1].Value -match '(?m)^\s*LongRunning\s*(,|$)') {
+            $id = [regex]::Match($attribute.Groups[1].Value, "(?m)^\s*Id\s*=\s*'([^']+)'")
+            if ($id.Success) { $id.Groups[1].Value; "$($id.Groups[1].Value).*" }
+        }
+    }
+    if ($skipIds) {
+        $run['ExcludeTestId'] = @($skipIds)
+        Write-Host "Skipping the pack's long-running checks: $((@($skipIds | Where-Object { $_ -notmatch '\.\*$' }) -join ', '))" -ForegroundColor Yellow
+    }
+} else {
+    $run['IncludeLongRunning'] = $true
+}
 Write-Host "Running Maester. A full run can take 25 minutes or more; results go to $OutputFolder" -ForegroundColor Cyan
 Invoke-Maester @run
 Write-Host "Done. Open $OutputFolder/assessment.html" -ForegroundColor Green
