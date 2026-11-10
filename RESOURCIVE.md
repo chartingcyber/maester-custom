@@ -71,6 +71,22 @@ If Graph sign-in says "Method not found", Exchange or Teams was already loaded i
 That one command runs the Resourcive M365 assessment against a client tenant, in place of `Connect-Maester`,
 `Install-MtPack` and `Invoke-Maester`. The checks are in [`resourcive-pack`](resourcive-pack/README.md) (each check's licence and access needs are listed there); the design is in [`M365 Assessment Toolkit Master Spec.md`](<M365 Assessment Toolkit Master Spec.md>).
 
+## The findings report
+
+`Invoke-Maester` writes `assessment.html`, which lists every check. For a client-ready view, build the findings report from the same results folder:
+
+```powershell
+./New-ResourciveReport.ps1 -ResultPath ./test-results/contoso.com_20261109-143015
+```
+
+It writes `findings-report.html` (one file, works offline) and `findings-action-list.csv` (ranked failures with blank owner, due date and status columns) into that folder. The report has an overview score, a remediation roadmap (Now, Next, Later), every failure ranked by risk and effort with the fix steps, attack paths, CIS Level 1 and 2, CISA SCuBA, NIST 800-53 and MITRE ATT&CK views, an inventory of privileged accounts, licence gaps, what changed since the previous run of the same tenant, and everything that could not be assessed and why. Skipped, errored and needs-review checks are never counted as passed.
+
+- Email addresses are shown in full. Add `-MaskNames` for a copy that leaves the team (it keeps the first three characters of each address).
+- Change the weights, roadmap cut-offs and attack-path mapping in `resourcive-report/risk-model.json`; no code change is needed.
+- The previous run is found automatically beside this one (same tenant); use `-ComparePath` to choose one, or `-NoCompare` to skip it.
+- Add your own analysis to the first page with `-SummaryPath notes.md`.
+- Not verified: the admin inventory and MFA flag need a run with the current pack (checks 3010 and 3011); earlier results show a partial list.
+
 ## Why a script instead of the normal commands
 
 `Connect-Maester` requests only Maester's own Graph scopes. The pack declares eight more in `Uses.GraphScopes`, and a

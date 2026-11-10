@@ -1,6 +1,12 @@
 {
   "_comment": "Edit these numbers to change how findings are ranked. Nothing else needs to change. Risk = SeverityWeight x AreaMultiplier. Effort = Cost + UserImpact. Priority = Risk / Effort.",
-  "SeverityWeight": { "Critical": 10, "High": 7, "Medium": 4, "Low": 2, "Info": 0 },
+  "SeverityWeight": {
+    "Critical": 10,
+    "High": 7,
+    "Medium": 4,
+    "Low": 2,
+    "Info": 0
+  },
   "AreaMultiplier": {
     "privileged-access": 1.3,
     "authentication": 1.25,
@@ -15,9 +21,22 @@
     "infrastructure": 0.85,
     "engineering-systems": 0.8
   },
-  "CostEffort": { "Low": 1, "Medium": 2, "High": 3, "None": 2 },
-  "ImpactEffort": { "None": 0, "Low": 0, "Medium": 1, "High": 2 },
-  "QuickWin": { "MaxEffort": 2, "MinRisk": 6 },
+  "CostEffort": {
+    "Low": 1,
+    "Medium": 2,
+    "High": 3,
+    "None": 2
+  },
+  "ImpactEffort": {
+    "None": 0,
+    "Low": 0,
+    "Medium": 1,
+    "High": 2
+  },
+  "QuickWin": {
+    "MaxEffort": 2,
+    "MinRisk": 6
+  },
   "AreaLabel": {
     "privileged-access": "Privileged access",
     "authentication": "Authentication and MFA",
@@ -46,5 +65,182 @@
     "copilot-studio": "Copilot Studio",
     "ad": "Active Directory",
     "azure": "Azure"
-  }
+  },
+  "Roadmap": {
+    "NextMinRisk": 4,
+    "NextMaxEffort": 3,
+    "_comment": "Now = quick wins. Next = failed, risk at least NextMinRisk and effort at most NextMaxEffort. Later = every other failed check."
+  },
+  "AttackPaths": [
+    {
+      "id": "account-takeover",
+      "name": "Account takeover",
+      "summary": "An attacker signs in as a real user with a stolen, guessed or phished password.",
+      "mitre": [
+        "T1078",
+        "T1110",
+        "T1111",
+        "T1556",
+        "T1621",
+        "T1566",
+        "T1539",
+        "T1528",
+        "T1557",
+        "T1212"
+      ],
+      "areas": [
+        "authentication",
+        "identity-lifecycle"
+      ]
+    },
+    {
+      "id": "privilege-escalation",
+      "name": "Privilege escalation and persistence",
+      "summary": "An attacker gains administrative power or plants a way back in.",
+      "mitre": [
+        "T1098",
+        "T1136",
+        "T1484",
+        "T1548",
+        "T1068",
+        "T1134",
+        "T1003",
+        "T1558"
+      ],
+      "areas": [
+        "privileged-access",
+        "applications"
+      ]
+    },
+    {
+      "id": "mail-compromise",
+      "name": "Mail compromise and phishing",
+      "summary": "An attacker reads, forwards or hides mail, or lands phishing in inboxes.",
+      "mitre": [
+        "T1114",
+        "T1137",
+        "T1534",
+        "T1598",
+        "T1656"
+      ],
+      "areas": [
+        "email-protection"
+      ]
+    },
+    {
+      "id": "endpoint-malware",
+      "name": "Malware, ransomware and device compromise",
+      "summary": "Malicious code runs on a device, or a lost or unmanaged device exposes data.",
+      "mitre": [
+        "T1204",
+        "T1059",
+        "T1486",
+        "T1091",
+        "T1052",
+        "T1200",
+        "T1218",
+        "T1547",
+        "T1053"
+      ],
+      "areas": [
+        "devices"
+      ]
+    },
+    {
+      "id": "data-exposure",
+      "name": "Data exposure and external access",
+      "summary": "Data leaves through sharing, guests or connected apps.",
+      "mitre": [
+        "T1530",
+        "T1567",
+        "T1537",
+        "T1213",
+        "T1020"
+      ],
+      "areas": [
+        "external-access"
+      ]
+    },
+    {
+      "id": "blind-spots",
+      "name": "Blind spots: logging and detection gaps",
+      "summary": "An attack would go unseen, or the evidence would not exist afterwards.",
+      "mitre": [
+        "T1562",
+        "T1070"
+      ],
+      "areas": [
+        "logging-and-detection"
+      ]
+    },
+    {
+      "id": "hygiene",
+      "name": "Platform hygiene and configuration drift",
+      "summary": "General settings that weaken the platform and make the other paths easier.",
+      "mitre": [],
+      "areas": [
+        "infrastructure",
+        "ai",
+        "engineering-systems"
+      ]
+    }
+  ],
+  "CisSections": {
+    "1": "Microsoft 365 admin center",
+    "2": "Microsoft Defender",
+    "3": "Microsoft Purview",
+    "4": "Microsoft Intune",
+    "5": "Microsoft Entra ID",
+    "6": "Exchange Online",
+    "7": "SharePoint and OneDrive",
+    "8": "Microsoft Teams",
+    "9": "Microsoft Fabric"
+  },
+  "LicenceCatalog": [
+    {
+      "code": "AAD_PREMIUM",
+      "name": "Microsoft Entra ID P1",
+      "unlocks": "Conditional Access, authentication method reports. Included in Microsoft 365 Business Premium and E3."
+    },
+    {
+      "code": "AAD_PREMIUM_P2",
+      "name": "Microsoft Entra ID P2",
+      "unlocks": "Identity Protection risk policies, Privileged Identity Management, and Defender advanced-hunting sign-in search (our sign-in checks 3005 and 3009). Included in Microsoft 365 E5."
+    },
+    {
+      "code": "Entra_Identity_Governance",
+      "name": "Microsoft Entra ID Governance",
+      "unlocks": "Access reviews and entitlement management. An alternative to P2 for some checks."
+    },
+    {
+      "code": "ATP_ENTERPRISE",
+      "name": "Defender for Office 365 Plan 1",
+      "unlocks": "Safe Links and Safe Attachments."
+    },
+    {
+      "code": "THREAT_INTELLIGENCE",
+      "name": "Defender for Office 365 Plan 2",
+      "unlocks": "Attack simulation training, threat explorer and automated investigation."
+    },
+    {
+      "code": "WINDEFATP",
+      "name": "Defender for Endpoint",
+      "unlocks": "Device risk, attack surface reduction reporting and advanced hunting on devices."
+    },
+    {
+      "code": "INTUNE_A",
+      "name": "Microsoft Intune Plan 1",
+      "unlocks": "Device compliance, configuration and encryption policy."
+    },
+    {
+      "code": "M365_ADVANCED_AUDITING",
+      "name": "Purview Audit (Premium)",
+      "unlocks": "Longer audit retention and extra audit events."
+    },
+    {
+      "code": "LOCKBOX_ENTERPRISE",
+      "name": "Customer Lockbox",
+      "unlocks": "Approval before Microsoft staff access your data."
+    }
+  ]
 }

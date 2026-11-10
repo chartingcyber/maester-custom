@@ -128,9 +128,14 @@ footer { margin-top: 28px; color: var(--muted); font-size: 12px; }
   <nav class="tabs" role="tablist" id="tabs"></nav>
   <main>
     <section class="tabpanel" id="p-overview"></section>
+    <section class="tabpanel" id="p-roadmap" hidden></section>
     <section class="tabpanel" id="p-priorities" hidden></section>
+    <section class="tabpanel" id="p-paths" hidden></section>
+    <section class="tabpanel" id="p-frameworks" hidden></section>
     <section class="tabpanel" id="p-areas" hidden></section>
     <section class="tabpanel" id="p-admins" hidden></section>
+    <section class="tabpanel" id="p-licences" hidden></section>
+    <section class="tabpanel" id="p-changes" hidden></section>
     <section class="tabpanel" id="p-notassessed" hidden></section>
     <section class="tabpanel" id="p-method" hidden></section>
   </main>
@@ -212,9 +217,14 @@ const DATA = /*__DATA__*/null;
   // ---- tabs ----
   var TABS = [
     ["overview", "Overview", ""],
+    ["roadmap", "Roadmap", D.bands.now + D.bands.next + D.bands.later],
     ["priorities", "Priorities", failed.length],
+    ["paths", "Attack paths", ""],
+    ["frameworks", "Frameworks", ""],
     ["areas", "By area", ""],
     ["admins", "Admins", D.admins ? (D.admins.tables.filter(function (x) { return x.headers[0] === "User"; })[0] || { rows: [] }).rows.length : ""],
+    ["licences", "Licences", ""],
+    ["changes", "Changes", D.changes ? D.changes.regressed.length + D.changes.fixed.length : ""],
     ["notassessed", "Not assessed", notAssessed.length],
     ["method", "How it is scored", ""]
   ];
@@ -234,6 +244,9 @@ const DATA = /*__DATA__*/null;
     if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
   }
 
+  function pathName(id) { var p = (D.paths || []).filter(function (x) { return x.id === id; })[0]; return p ? p.name : ""; }
+  function byId(ids) { var set = {}; (ids || []).forEach(function (i) { set[i] = 1; }); return F.filter(function (f) { return set[f.id]; }); }
+  function listHtml(rows, limit) { var shown = limit ? rows.slice(0, limit) : rows; return shown.length ? '<div class="list">' + shown.map(function (f) { return findingHtml(f); }).join("") + "</div>" + (limit && rows.length > limit ? '<p class="small muted">Showing ' + limit + " of " + rows.length + ". The full list is on the Priorities tab or in the CSV.</p>" : "") : '<div class="empty">Nothing here.</div>'; }
   // ---- finding component ----
   function findingHtml(f, opts) {
     opts = opts || {};
@@ -242,6 +255,8 @@ const DATA = /*__DATA__*/null;
     var right = [];
     if (f.result !== "Failed" && f.result !== "Passed") right.push('<span class="pill res-' + esc(f.result) + '">' + esc(f.result) + "</span>");
     if (f.result === "Passed") right.push('<span class="pill res-Passed">Passed</span>');
+    if (f.change === "regressed") right.push('<span class="pill res-Failed">New failure</span>');
+    if (f.change === "fixed") right.push('<span class="pill res-Passed">Fixed</span>');
     if (f.quick) right.push('<span class="pill" style="background:var(--accent-soft);color:var(--accent)">Quick win</span>');
     if (f.result === "Failed" && f.severity !== "Info") right.push('<span class="tag" title="Risk / effort">risk ' + f.risk + " &middot; effort " + f.effort + "</span>");
     var meta = [esc(f.id), esc(f.areaName || f.area), esc(f.domain)].filter(Boolean).join(" &middot; ");
@@ -257,10 +272,14 @@ const DATA = /*__DATA__*/null;
     }
     if (f.desc) body += '<h3>What this checks and why it matters</h3><div class="md">' + md(f.desc) + "</div>";
     if (f.detail) body += '<h3>What we found</h3><div class="md">' + md(f.detail) + "</div>";
+    if (f.fix && f.result !== "Passed") body += '<h3>How to fix it</h3><div class="md">' + md(f.fix) + "</div>";
     var tags = [];
     if (f.cost && f.cost !== "None") tags.push("Cost: " + f.cost);
     if (f.impact && f.impact !== "None") tags.push("User impact: " + f.impact);
     if (f.suite) tags.push(f.suite);
+    var pth = pathName(f.path); if (pth && f.result === "Failed") tags.push("Attack path: " + pth);
+    if (f.cis) tags.push("CIS " + f.cis.req + " " + f.cis.level);
+    if (f.cisa) tags.push("SCuBA " + f.cisa.req + " " + f.cisa.criticality);
     (f.mitre || []).slice(0, 6).forEach(function (m) { tags.push(m); });
     (f.controls || []).slice(0, 4).forEach(function (m) { tags.push(m); });
     if (tags.length) body += '<div class="tags">' + tags.map(function (t) { return '<span class="tag">' + esc(t) + "</span>"; }).join("") + "</div>";
@@ -284,7 +303,7 @@ const DATA = /*__DATA__*/null;
     var h = '<div class="grid g-hero"><div class="panel score"><h2>Risk score</h2>' + ring(D.score) + '<div><span class="band" style="color:' + b[1] + ";background:" + b[2] + '">' + b[0] + "</span></div>" +
       '<p class="small muted" style="margin:10px 0 0">Weighted share of assessed checks that pass. Coverage ' + (D.coverage == null ? "n/a" : D.coverage + "%") + ".</p></div>";
     h += '<div class="panel summary"><h2>Summary</h2>' + md(D.summary) +
-      '<div class="kpis"><div class="kpi"><div class="v" style="color:var(--crit)">' + c.failed + '</div><div class="l">Failed</div></div><div class="kpi"><div class="v" style="color:var(--ok)">' + c.passed + '</div><div class="l">Passed</div></div><div class="kpi"><div class="v" style="color:var(--med)">' + c.investigate + '</div><div class="l">Need review</div></div><div class="kpi"><div class="v">' + (c.skipped + c.errors) + '</div><div class="l">Skipped or errored</div></div></div></div></div>';
+      '<div class="kpis"><div class="kpi"><div class="v" style="color:var(--crit)">' + c.failed + '</div><div class="l">Failed</div></div><div class="kpi"><div class="v" style="color:var(--ok)">' + c.passed + '</div><div class="l">Passed</div></div><div class="kpi"><div class="v" style="color:var(--med)">' + c.investigate + '</div><div class="l">Need review</div></div><div class="kpi"><div class="v">' + (c.skipped + c.errors) + '</div><div class="l">Skipped or errored</div></div>' + (D.secureScore ? '<div class="kpi"><div class="v">' + Math.round(D.secureScore.current) + '<span class="small muted"> / ' + Math.round(D.secureScore.max) + '</span></div><div class="l">Microsoft Secure Score</div></div>' : "") + '</div></div></div>';
     h += '<div class="grid g-2" style="margin-top:16px"><div class="panel"><h2>Failed checks by severity</h2>';
     SEV.slice(0, 4).forEach(function (s) {
       var n = D.severity[s] || 0;
@@ -396,6 +415,125 @@ const DATA = /*__DATA__*/null;
     });
   }
 
+
+  // ---- roadmap ----
+  function csvCell(v) { v = String(v == null ? "" : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+  function downloadCsv() {
+    var head = ["Rank", "Band", "Id", "Title", "Severity", "Area", "Product", "Attack path", "Risk", "Effort", "Quick win", "CIS level", "Owner", "Due date", "Status", "Notes"];
+    var lines = [head.join(",")], n = 0;
+    F.filter(function (f) { return f.result === "Failed" && f.severity !== "Info"; }).forEach(function (f) {
+      n++;
+      var band = f.band === "now" ? "Now (0-30 days)" : f.band === "next" ? "Next (30-90 days)" : "Later";
+      lines.push([n, band, f.id, f.title, f.severity, f.areaName, f.domain, pathName(f.path), f.risk, f.effort, f.quick ? "Yes" : "", f.cis ? f.cis.level : "", "", "", "", ""].map(csvCell).join(","));
+    });
+    var blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "findings-action-list.csv"; document.body.appendChild(a); a.click(); a.remove();
+  }
+  function roadmap() {
+    var BANDS = [
+      ["now", "Now: 0 to 30 days", "Quick wins. High risk, little effort, little user impact. Start here."],
+      ["next", "Next: 30 to 90 days", "Failures of medium or higher risk that take modest effort or planning."],
+      ["later", "Later: after 90 days", "Lower risk or larger effort. Plan these once the first two columns are under way."]
+    ];
+    var h = '<div class="panel" style="margin-bottom:16px"><div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between"><div><h2 style="margin:0 0 4px">Remediation roadmap</h2><p class="small muted" style="margin:0">Every failed check is placed in one band by its risk and effort (' + "quick win: risk " + D.model.quickWin.MinRisk + "+, effort " + D.model.quickWin.MaxEffort + " or less). Confirm the dates with the people who run the tenant.</p></div><button class=\"btn\" id=\"csv\" type=\"button\">Download action list (CSV)</button></div>";
+    h += '<div class="kpis">' + BANDS.map(function (b) { return '<div class="kpi"><div class="v">' + D.bands[b[0]] + '</div><div class="l">' + b[1] + "</div></div>"; }).join("") + "</div></div>";
+    BANDS.forEach(function (b) {
+      var rows = F.filter(function (f) { return f.band === b[0]; });
+      h += '<h3 style="margin:20px 0 4px">' + esc(b[1]) + ' <span class="muted">(' + rows.length + ")</span></h3><p class=\"small muted\" style=\"margin:0 0 8px\">" + esc(b[2]) + "</p>" + listHtml(rows, b[0] === "now" ? 25 : 15);
+    });
+    $("#p-roadmap").innerHTML = h;
+    $("#csv").onclick = downloadCsv;
+  }
+
+  // ---- attack paths ----
+  function paths() {
+    var h = '<div class="panel" style="margin-bottom:16px"><h2>Attack paths</h2><p class="small muted" style="margin:0">Each failed check is grouped by the kind of attack it lets through, taken from its MITRE ATT&amp;CK techniques and area. This is how an attacker sees the tenant: start with the path that has the most unresolved risk.</p></div><div class="grid g-2">';
+    var sorted = D.paths.slice().sort(function (a, b) { return b.risk - a.risk; });
+    var maxRisk = Math.max.apply(null, sorted.map(function (p) { return p.risk; }).concat([1]));
+    sorted.forEach(function (p) {
+      var bb = band(p.score);
+      h += '<div class="panel"><h2 style="margin-bottom:4px">' + esc(p.name) + '</h2><p class="small muted" style="margin:0 0 10px">' + esc(p.summary) + '</p><div class="bar"><span style="width:' + (100 * p.risk / maxRisk) + "%;background:" + bb[1] + '"></span></div>' +
+        '<div class="small" style="margin-top:8px"><b>' + p.failed + "</b> failed &middot; " + p.passed + " passed &middot; " + p.quick + " quick wins &middot; open risk " + p.risk + ' &middot; <span class="pill" style="color:' + bb[1] + ";background:" + bb[2] + '">' + (p.score == null ? "-" : p.score) + " " + bb[0] + "</span></div></div>";
+    });
+    h += "</div>";
+    sorted.forEach(function (p) {
+      var rows = F.filter(function (f) { return f.path === p.id && f.result === "Failed" && f.severity !== "Info"; }).sort(function (a, b) { return b.priority - a.priority; });
+      if (!rows.length) return;
+      h += '<details class="panel" style="margin-top:16px"><summary style="cursor:pointer;font-weight:600">' + esc(p.name) + ' <span class="muted">(' + rows.length + " failed)</span></summary><div style=\"margin-top:12px\">" + listHtml(rows, 25) + "</div></details>";
+    });
+    $("#p-paths").innerHTML = h;
+  }
+
+  // ---- frameworks ----
+  var STATE_CLASS = { Passed: "res-Passed", Failed: "res-Failed", "Not assessed": "res-Skipped" };
+  function fwTable(headers, rows) { return '<div class="md"><table><thead><tr>' + headers.map(function (x) { return "<th>" + esc(x) + "</th>"; }).join("") + "</tr></thead><tbody>" + rows.join("") + "</tbody></table></div>"; }
+  var fwView = "cis", cisLevel = "L1";
+  function frameworks() {
+    var FW = D.frameworks;
+    var views = [["cis", "CIS Microsoft 365"], ["cisa", "CISA SCuBA"], ["nist", "NIST 800-53"], ["mitre", "MITRE ATT&CK"]];
+    var h = '<div class="filters">' + views.map(function (v) { return '<button class="chip" type="button" data-fw="' + v[0] + '" aria-pressed="' + (fwView === v[0]) + '">' + v[1] + "</button>"; }).join("") + "</div>";
+    if (fwView === "cis") {
+      var C = FW.cis, lv = C.levels[cisLevel], done = lv.passed + lv.failed, pct = done ? Math.round(100 * lv.passed / done) : null;
+      h += '<div class="panel" style="margin-bottom:16px"><div class="filters"><button class="chip" type="button" data-cis="L1" aria-pressed="' + (cisLevel === "L1") + '">Level 1</button><button class="chip" type="button" data-cis="L2" aria-pressed="' + (cisLevel === "L2") + '">Level 2</button></div>' +
+        '<h2>CIS Microsoft 365 Foundations Benchmark ' + esc(C.version) + " &middot; " + (cisLevel === "L1" ? "Level 1" : "Level 2") + '</h2><div class="kpis"><div class="kpi"><div class="v">' + (pct == null ? "-" : pct + "%") + '</div><div class="l">of assessed requirements pass</div></div><div class="kpi"><div class="v" style="color:var(--ok)">' + lv.passed + '</div><div class="l">Pass</div></div><div class="kpi"><div class="v" style="color:var(--crit)">' + lv.failed + '</div><div class="l">Fail</div></div><div class="kpi"><div class="v" style="color:var(--med)">' + lv.notAssessed + '</div><div class="l">Not assessed</div></div><div class="kpi"><div class="v">' + lv.checked + (lv.inBenchmark != null ? '<span class="small muted"> / ' + lv.inBenchmark + "</span>" : "") + '</div><div class="l">Requirements checked</div></div></div>' +
+        '<p class="small muted" style="margin:10px 0 0">Not assessed requirements are not counted as passed. A pass means the setting was found as the benchmark requires; it is a sample of the benchmark, not a certification.</p></div>';
+      var secs = Object.keys(C.sections);
+      secs.forEach(function (sec) {
+        var rows = C.rows.filter(function (r) { return r.level === cisLevel && r.section === sec; });
+        if (!rows.length) return;
+        var p = rows.filter(function (r) { return r.state === "Passed"; }).length, fl = rows.filter(function (r) { return r.state === "Failed"; }).length;
+        h += '<details class="panel" style="margin-bottom:10px"' + (fl ? " open" : "") + '><summary style="cursor:pointer;font-weight:600">' + sec + ". " + esc(C.sections[sec]) + ' <span class="muted">(' + p + " pass, " + fl + " fail, " + (rows.length - p - fl) + " not assessed)</span></summary><div style=\"margin-top:10px\">" +
+          fwTable(["Requirement", "Check", "Result", "Profile"], rows.map(function (r) { return "<tr><td>" + esc(r.req) + "</td><td>" + esc(r.title) + ' <span class="muted small">' + esc(r.ids.join(", ")) + '</span></td><td><span class="pill ' + STATE_CLASS[r.state] + '">' + esc(r.state) + "</span></td><td>" + esc(r.profile) + "</td></tr>"; })) + "</div></details>";
+      });
+    } else if (fwView === "cisa") {
+      var groups = {};
+      FW.cisa.forEach(function (r) { (groups[r.area] = groups[r.area] || []).push(r); });
+      h += '<div class="panel" style="margin-bottom:16px"><h2>CISA SCuBA baselines</h2><p class="small muted" style="margin:0">Microsoft 365 secure configuration baselines. SHALL is a requirement, SHOULD a recommendation.</p></div>';
+      Object.keys(groups).sort().forEach(function (g) {
+        var rows = groups[g], p = rows.filter(function (r) { return r.state === "Passed"; }).length, fl = rows.filter(function (r) { return r.state === "Failed"; }).length;
+        h += '<details class="panel" style="margin-bottom:10px"' + (fl ? " open" : "") + '><summary style="cursor:pointer;font-weight:600">' + esc(g) + ' <span class="muted">(' + p + " pass, " + fl + " fail, " + (rows.length - p - fl) + " not assessed)</span></summary><div style=\"margin-top:10px\">" +
+          fwTable(["Control", "Level", "Check", "Result"], rows.map(function (r) { return "<tr><td>" + esc(r.req) + "</td><td>" + esc(r.criticality) + "</td><td>" + esc(r.title) + '</td><td><span class="pill ' + STATE_CLASS[r.state] + '">' + esc(r.state) + "</span></td></tr>"; })) + "</div></details>";
+      });
+    } else if (fwView === "nist") {
+      var FAM = { AC: "Access control", AT: "Awareness and training", AU: "Audit and accountability", CA: "Assessment and authorization", CM: "Configuration management", CP: "Contingency planning", IA: "Identification and authentication", IR: "Incident response", MA: "Maintenance", MP: "Media protection", PE: "Physical protection", PL: "Planning", PM: "Program management", PS: "Personnel security", RA: "Risk assessment", SA: "System and services acquisition", SC: "System and communications protection", SI: "System and information integrity", SR: "Supply chain risk management" };
+      h += '<div class="panel"><h2>NIST SP 800-53 Rev. 5 control families</h2><p class="small muted" style="margin-top:0">How many checks that map to each family pass or fail. Many checks map to several families.</p>' +
+        fwTable(["Family", "Passed", "Failed", "Not assessed"], FW.nist.map(function (r) { return "<tr><td><b>" + esc(r.family) + "</b> " + esc(FAM[r.family] || "") + '</td><td class="num">' + r.passed + '</td><td class="num">' + r.failed + '</td><td class="num">' + r.notAssessed + "</td></tr>"; })) + "</div>";
+    } else {
+      h += '<div class="panel"><h2>MITRE ATT&amp;CK techniques</h2><p class="small muted" style="margin-top:0">The techniques with the most failed defences. Each technique is a way attackers get in or move; a failed check here is a defence that is missing or weak. Showing the top 40.</p>' +
+        fwTable(["Technique", "Passed", "Failed", "Not assessed"], FW.mitre.map(function (r) { return '<tr><td><a href="https://attack.mitre.org/techniques/' + esc(r.technique).replace(".", "/") + '/" target="_blank" rel="noopener noreferrer">' + esc(r.technique) + '</a></td><td class="num">' + r.passed + '</td><td class="num">' + r.failed + '</td><td class="num">' + r.notAssessed + "</td></tr>"; })) + "</div>";
+    }
+    $("#p-frameworks").innerHTML = h;
+    Array.prototype.forEach.call(document.querySelectorAll("[data-fw]"), function (b) { b.onclick = function () { fwView = b.dataset.fw; frameworks(); }; });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-cis]"), function (b) { b.onclick = function () { cisLevel = b.dataset.cis; frameworks(); }; });
+  }
+
+  // ---- licences ----
+  function licences() {
+    var L = D.licences, h = '<div class="panel" style="margin-bottom:16px"><h2>Licences and what they unlock</h2><p class="small muted" style="margin:0">' + (L.known ? "Present or absent is read from the tenant's own licence list. " : "The tenant's licence list could not be read, so present or absent is not shown. ") + "A check that needs a licence the tenant lacks is not a failure: the control cannot exist without it. It is listed here, not scored.</p></div>";
+    var gaps = L.catalog.filter(function (c) { return c.present === false || c.blocked.length; }).sort(function (a, b) { return b.blocked.length - a.blocked.length; });
+    h += '<div class="panel"><table class="plain"><thead><tr><th>Licence</th><th>Tenant has it</th><th class="num">Checks blocked</th><th>What it unlocks</th></tr></thead><tbody>' +
+      L.catalog.map(function (c) { return "<tr><td><b>" + esc(c.name) + '</b><div class="small muted">' + esc(c.code) + '</div></td><td>' + (c.present === true ? '<span class="pill res-Passed">Yes</span>' : c.present === false ? '<span class="pill res-Failed">No</span>' : '<span class="pill res-Skipped">Unknown</span>') + '</td><td class="num">' + c.blocked.length + '</td><td class="small">' + esc(c.unlocks) + "</td></tr>"; }).join("") + "</tbody></table></div>";
+    gaps.forEach(function (c) {
+      if (!c.blocked.length) return;
+      h += '<details class="panel" style="margin-top:16px"><summary style="cursor:pointer;font-weight:600">' + esc(c.name) + ' <span class="muted">(' + c.blocked.length + " checks could not run or need review)</span></summary><div style=\"margin-top:12px\">" + listHtml(byId(c.blocked), 40) + "</div></details>";
+    });
+    $("#p-licences").innerHTML = h;
+  }
+
+  // ---- changes since the previous run ----
+  function changes() {
+    var C = D.changes;
+    if (!C) { $("#p-changes").innerHTML = '<div class="panel"><h2>Changes since the last run</h2><p class="muted">No earlier run of this tenant was found beside this one. Run the assessment again later, then regenerate this report to see what improved and what got worse. Use <code>-ComparePath</code> to compare against a specific earlier result.</p></div>'; return; }
+    var delta = (D.score != null && C.previousScore != null) ? D.score - C.previousScore : null;
+    var h = '<div class="panel" style="margin-bottom:16px"><h2>Changes since ' + esc(fmtDate(C.previousAt)) + '</h2><div class="kpis"><div class="kpi"><div class="v">' + (C.previousScore == null ? "-" : C.previousScore) + " &rarr; " + (D.score == null ? "-" : D.score) + '</div><div class="l">Score' + (delta == null ? "" : " (" + (delta >= 0 ? "+" : "") + delta + ")") + '</div></div><div class="kpi"><div class="v" style="color:var(--ok)">' + C.fixed.length + '</div><div class="l">Now pass</div></div><div class="kpi"><div class="v" style="color:var(--crit)">' + C.regressed.length + '</div><div class="l">Newly fail</div></div><div class="kpi"><div class="v">' + C.still.length + '</div><div class="l">Still failing</div></div><div class="kpi"><div class="v">' + C.newChecks.length + '</div><div class="l">New checks</div></div><div class="kpi"><div class="v">' + C.changed.length + '</div><div class="l">Other change</div></div></div><p class="small muted" style="margin:10px 0 0">' + esc(C.note) + "</p></div>";
+    [["regressed", "Newly failing", "These passed last time and fail now. Look at these first."], ["fixed", "Now passing", "These failed last time and pass now."], ["changed", "Other result changes", "For example a check that errored last time and ran this time."], ["newChecks", "New checks", "Not in the earlier run."]].forEach(function (g) {
+      var rows = byId(C[g[0]]);
+      if (!rows.length) return;
+      h += '<h3 style="margin:20px 0 4px">' + g[1] + ' <span class="muted">(' + rows.length + ')</span></h3><p class="small muted" style="margin:0 0 8px">' + g[2] + "</p>" + listHtml(rows, 30);
+    });
+    $("#p-changes").innerHTML = h;
+  }
+
   // ---- not assessed ----
   var KIND = {
     Licence: ["Needs a licence the tenant does not have", "Not a failure. The control cannot exist without the licence. Where it matters, the finding is to consider the licence, or check by hand."],
@@ -425,7 +563,8 @@ const DATA = /*__DATA__*/null;
     var m = D.model, h = '<div class="panel md"><h2>How the ranking works</h2>' +
       "<p><b>Risk</b> = the check's severity weight x a multiplier for its area, so a gap in privileged access or sign-in counts for more than the same severity in a less exposed area.</p>" +
       "<p><b>Effort</b> = the check's implementation cost plus its user impact. <b>Priority</b> = risk divided by effort, so cheap fixes for serious gaps come first.</p>" +
-      "<p><b>Quick win</b> = a failed check with risk of at least " + m.quickWin.MinRisk + " and effort of at most " + m.quickWin.MaxEffort + ".</p>" +
+      "<p><b>Quick win</b> = a failed check with risk of at least " + m.quickWin.MinRisk + " and effort of at most " + m.quickWin.MaxEffort + ". <b>Roadmap</b>: Now = quick wins; Next = other failures with risk of at least " + m.roadmap.NextMinRisk + " and effort of at most " + m.roadmap.NextMaxEffort + "; Later = the rest.</p>" +
+      "<p><b>Attack paths</b> group failed checks by the kind of attack they let through, using each check's MITRE ATT&amp;CK techniques, then its area. The mapping is in risk-model.json and can be changed.</p>" +
       "<p><b>Score</b> = the risk-weighted share of assessed checks that passed. Skipped, errored and needs-review checks are left out and listed on the Not assessed tab. Informational checks carry no weight. A check that expands into many scenarios counts once.</p>" +
       "<p><b>Coverage</b> = assessed checks as a share of in-scope checks. Checks for services outside the assessment, retired checks and features not in use are not in scope.</p>" +
       "<p>Severity, cost and user impact come from each check's own metadata and are general, not specific to this organisation. Confirm the top items with the people who run the tenant before committing a schedule. The weights below are a starting point and can be changed.</p>" +
@@ -435,7 +574,7 @@ const DATA = /*__DATA__*/null;
     $("#p-method").innerHTML = h;
   }
 
-  overview(); priorities(); areas(); adminsTab(); notAss(); method();
+  overview(); roadmap(); priorities(); paths(); frameworks(); areas(); adminsTab(); licences(); changes(); notAss(); method();
   var start = (location.hash || "").slice(1);
   show(TABS.some(function (t) { return t[0] === start; }) ? start : "overview");
 })();
