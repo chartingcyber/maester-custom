@@ -16,6 +16,25 @@ Describe 'Entra checks' {
         }
     }
 
+    Context 'MP.RESOURCIVE.3010 privileged role inventory' {
+        It 'lists accounts and roles, marks risky ones and is Investigate' {
+            Mock Get-ResPrivilegedUser {
+                @([pscustomobject]@{ UserPrincipalName = 'ga@contoso.com'; UserType = 'Member'; AccountEnabled = $true; OnPremisesSyncEnabled = $false; Roles = @('Global Administrator'); ActiveRoles = @('Global Administrator'); EligibleRoles = @(); EligibleReadable = $true; UnreadableGroups = @() },
+                    [pscustomobject]@{ UserPrincipalName = 'ext@fabrikam.com'; UserType = 'Guest'; AccountEnabled = $true; OnPremisesSyncEnabled = $false; Roles = @('User Administrator', 'Exchange Administrator', 'Helpdesk Administrator'); ActiveRoles = @('User Administrator'); EligibleRoles = @('Exchange Administrator', 'Helpdesk Administrator'); EligibleReadable = $true; UnreadableGroups = @() })
+            }
+            Test-ResPrivilegedRoleInventory | Should -BeTrue
+            $detail[-1].Investigate | Should -BeTrue
+            $detail[-1].Result | Should -Match '2 account\(s\) hold a privileged role'
+            $detail[-1].Result | Should -Match 'ext@fabrikam.com \| Guest \| Yes \| Cloud \| User Administrator \| Exchange Administrator, Helpdesk Administrator \| Guest; 3 roles'
+            $detail[-1].Result | Should -Match '\| Global Administrator \| 1 \| 1 \| 0 \|'
+        }
+        It 'passes plainly when nobody holds a role' {
+            Mock Get-ResPrivilegedUser { }
+            Test-ResPrivilegedRoleInventory | Should -BeTrue
+            $detail[-1].Investigate | Should -BeFalse
+        }
+    }
+
     Context 'MP.RESOURCIVE.3001 change log' {
         It 'is Investigate with changes and passes without' {
             Mock Invoke-MtGraphRequest { @() }

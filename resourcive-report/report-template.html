@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security findings report</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #14202e; --muted: #5b6878; --line: #dde2e8;
+  --accent: #14487f; --accent-soft: #e6eef7;
+  --crit: #b3261e; --high: #d9622b; --med: #c28a00; --low: #3a7ca5; --ok: #2e8b57; --info: #7a8794;
+  --crit-bg: #fbe9e7; --high-bg: #fdeee6; --med-bg: #fff6dc; --low-bg: #e8f1f7; --ok-bg: #e6f4ec; --info-bg: #eef0f2;
+  --shadow: 0 1px 2px rgba(20,32,46,.06), 0 4px 12px rgba(20,32,46,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1620; --panel: #16212d; --ink: #e8edf2; --muted: #9aa7b5; --line: #2a3846;
+    --accent: #6fb1e6; --accent-soft: #1b2e42;
+    --crit: #ff8a80; --high: #ffa070; --med: #f0c04a; --low: #7cc0e8; --ok: #6fcf97; --info: #9aa7b5;
+    --crit-bg: #3a1f1d; --high-bg: #3a2519; --med-bg: #36300f; --low-bg: #16303f; --ok-bg: #173226; --info-bg: #1f2a35;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1620; --panel: #16212d; --ink: #e8edf2; --muted: #9aa7b5; --line: #2a3846;
+  --accent: #6fb1e6; --accent-soft: #1b2e42;
+  --crit: #ff8a80; --high: #ffa070; --med: #f0c04a; --low: #7cc0e8; --ok: #6fcf97; --info: #9aa7b5;
+  --crit-bg: #3a1f1d; --high-bg: #3a2519; --med-bg: #36300f; --low-bg: #16303f; --ok-bg: #173226; --info-bg: #1f2a35;
+  --shadow: none;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px 64px; }
+header.top { padding: 28px 0 8px; display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -.01em; }
+.sub { color: var(--muted); font-size: 13px; }
+.sub b { color: var(--ink); font-weight: 600; }
+.btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+nav.tabs { position: sticky; top: 0; z-index: 5; background: var(--bg); display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 8px 0 20px; overflow-x: auto; }
+nav.tabs button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 12px 14px; font: inherit; font-weight: 600; color: var(--muted); cursor: pointer; white-space: nowrap; }
+nav.tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+nav.tabs .n { font-weight: 500; color: var(--muted); margin-left: 4px; font-size: 12px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; box-shadow: var(--shadow); }
+.grid { display: grid; gap: 16px; }
+.g-hero { grid-template-columns: minmax(220px, 280px) 1fr; }
+.g-2 { grid-template-columns: 1fr 1fr; }
+@media (max-width: 820px) { .g-hero, .g-2 { grid-template-columns: 1fr; } }
+h2 { font-size: 17px; margin: 0 0 12px; }
+h3 { font-size: 14px; margin: 14px 0 6px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.score { text-align: center; }
+.ring { width: 180px; height: 180px; margin: 0 auto; }
+.ring text { fill: var(--ink); }
+.band { display: inline-block; margin-top: 8px; padding: 2px 10px; border-radius: 99px; font-size: 13px; font-weight: 600; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-top: 12px; }
+.kpi { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.kpi .v { font-size: 24px; font-weight: 700; line-height: 1.1; }
+.kpi .l { font-size: 12px; color: var(--muted); }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 99px; white-space: nowrap; }
+.sev-Critical { color: var(--crit); background: var(--crit-bg); }
+.sev-High { color: var(--high); background: var(--high-bg); }
+.sev-Medium { color: var(--med); background: var(--med-bg); }
+.sev-Low { color: var(--low); background: var(--low-bg); }
+.sev-Info { color: var(--info); background: var(--info-bg); }
+.res-Passed { color: var(--ok); background: var(--ok-bg); }
+.res-Failed { color: var(--crit); background: var(--crit-bg); }
+.res-Investigate, .res-Skipped, .res-Error, .res-NotRun { color: var(--med); background: var(--med-bg); }
+.bar { height: 10px; border-radius: 6px; background: var(--info-bg); overflow: hidden; display: flex; }
+.bar > span { display: block; height: 100%; }
+.row { display: grid; grid-template-columns: minmax(130px, 220px) 1fr 52px; gap: 10px; align-items: center; padding: 6px 0; font-size: 14px; }
+.row .name { overflow: hidden; text-overflow: ellipsis; }
+.num { font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; }
+.summary p { margin: 0 0 10px; }
+.summary p:last-child { margin: 0; }
+.quick { display: grid; gap: 8px; }
+.qitem { display: flex; gap: 10px; align-items: baseline; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; background: var(--panel); text-align: left; font: inherit; color: inherit; width: 100%; }
+.qitem:hover { border-color: var(--accent); }
+.qitem .t { flex: 1; }
+.qitem .m { font-size: 12px; color: var(--muted); }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; align-items: center; }
+.filters input[type=search], .filters select { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 13px; }
+.filters input[type=search] { flex: 1; min-width: 180px; }
+.chip { border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 4px 10px; border-radius: 99px; font-size: 12px; cursor: pointer; font-weight: 600; }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.list { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--panel); }
+details.f { border-bottom: 1px solid var(--line); }
+details.f:last-child { border-bottom: 0; }
+details.f > summary { list-style: none; cursor: pointer; padding: 12px 14px; display: grid; grid-template-columns: 78px 1fr auto; gap: 10px; align-items: center; }
+details.f > summary::-webkit-details-marker { display: none; }
+details.f > summary:hover { background: var(--accent-soft); }
+details.f[open] > summary { background: var(--accent-soft); }
+.f .title { font-weight: 600; }
+.f .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.f .right { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.body { padding: 4px 18px 18px 18px; border-top: 1px dashed var(--line); }
+.body .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.tag { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; }
+.md { font-size: 14px; }
+.md p { margin: 0 0 10px; }
+.md ul { margin: 0 0 10px; padding-left: 20px; }
+a { color: var(--accent); }
+.md code { background: var(--info-bg); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+.md table { border-collapse: collapse; width: 100%; font-size: 13px; margin: 6px 0 12px; display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+.md th { background: var(--info-bg); }
+.empty { padding: 28px; text-align: center; color: var(--muted); }
+.why { background: var(--accent-soft); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 10px 0; }
+table.plain { border-collapse: collapse; width: 100%; font-size: 14px; }
+table.plain th, table.plain td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+footer { margin-top: 28px; color: var(--muted); font-size: 12px; }
+@media print { nav.tabs, .btn, .filters { display: none; } .tabpanel { display: block !important; } details.f { break-inside: avoid; } details.f > .body { display: block; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1 id="title"></h1>
+      <div class="sub" id="meta"></div>
+    </div>
+    <div><button class="btn" id="theme" type="button">Light / dark</button></div>
+  </header>
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+  <main>
+    <section class="tabpanel" id="p-overview"></section>
+    <section class="tabpanel" id="p-priorities" hidden></section>
+    <section class="tabpanel" id="p-areas" hidden></section>
+    <section class="tabpanel" id="p-admins" hidden></section>
+    <section class="tabpanel" id="p-notassessed" hidden></section>
+    <section class="tabpanel" id="p-method" hidden></section>
+  </main>
+  <footer id="foot"></footer>
+</div>
+<script>
+const DATA = /*__DATA__*/null;
+</script>
+<script>
+(function () {
+  "use strict";
+  var D = DATA;
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
+  var SEV = ["Critical", "High", "Medium", "Low", "Info"];
+  var SEVCOLOR = { Critical: "var(--crit)", High: "var(--high)", Medium: "var(--med)", Low: "var(--low)" };
+  var fmtDate = function (s) { var d = new Date(s); return isNaN(d) ? s : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }); };
+
+  // ---- small markdown renderer (input is escaped first) ----
+  function inline(t) {
+    t = esc(String(t).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&"));
+    t = t.replace(/`([^`]+)`/g, "<code>$1</code>");
+    t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    t = t.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+    t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    return t;
+  }
+  function md(src) {
+    if (!src) return "";
+    var lines = String(src).replace(/\r/g, "").split("\n"), out = [], i = 0;
+    while (i < lines.length) {
+      var l = lines[i];
+      if (!l.trim()) { i++; continue; }
+      if (/^\s*\|/.test(l) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+        var head = l.trim().replace(/^\||\|$/g, "").split("|"), rows = [];
+        i += 2;
+        while (i < lines.length && /^\s*\|/.test(lines[i])) { rows.push(lines[i].trim().replace(/^\||\|$/g, "").split("|")); i++; }
+        out.push("<table><thead><tr>" + head.map(function (h) { return "<th>" + inline(h.trim()) + "</th>"; }).join("") + "</tr></thead><tbody>" +
+          rows.map(function (r) { return "<tr>" + r.map(function (c) { return "<td>" + inline(c.trim()) + "</td>"; }).join("") + "</tr>"; }).join("") + "</tbody></table>");
+        continue;
+      }
+      var hd = /^\s*(#{1,6})\s+(.*)$/.exec(l);
+      if (hd) { out.push("<h3>" + inline(hd[2]) + "</h3>"); i++; continue; }
+      if (/^\s*[-*•]\s+/.test(l)) {
+        var items = [];
+        while (i < lines.length && /^\s*[-*•]\s+/.test(lines[i])) { items.push(lines[i].replace(/^\s*[-*•]\s+/, "")); i++; }
+        out.push("<ul>" + items.map(function (x) { return "<li>" + inline(x) + "</li>"; }).join("") + "</ul>");
+        continue;
+      }
+      var para = [lines[i]];
+      i++;
+      while (i < lines.length && lines[i].trim() && !/^\s*\|/.test(lines[i]) && !/^\s*[-*•]\s+/.test(lines[i]) && !/^\s*#{1,6}\s/.test(lines[i])) { para.push(lines[i]); i++; }
+      out.push("<p>" + inline(para.join(" ")) + "</p>");
+    }
+    return out.join("");
+  }
+
+  // ---- header ----
+  document.title = (D.meta.title || "Security") + " - security findings";
+  $("#title").textContent = (D.meta.title || "Tenant") + " security findings";
+  var metaParts = [];
+  if (D.meta.executedAt) metaParts.push("Assessed <b>" + esc(fmtDate(D.meta.executedAt)) + "</b>");
+  if (D.meta.tenantId) metaParts.push("Tenant <b>" + esc(D.meta.tenantId) + "</b>");
+  if (D.meta.account) metaParts.push("Run as <b>" + esc(D.meta.account) + "</b>");
+  metaParts.push(D.meta.masked ? "Email addresses masked" : "Email addresses shown");
+  $("#meta").innerHTML = metaParts.join(" &middot; ");
+  $("#foot").textContent = "Generated " + D.meta.generated + " from a Maester result. Read-only assessment; nothing in the tenant was changed. A skipped or unreviewed check is never counted as passed.";
+
+  var theme = null;
+  $("#theme").onclick = function () {
+    var dark = document.documentElement.getAttribute("data-theme") === "dark" || (!document.documentElement.getAttribute("data-theme") && matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
+  };
+
+  var F = D.findings;
+  var failed = F.filter(function (f) { return f.result === "Failed" && f.severity !== "Info"; });
+  var notAssessed = F.filter(function (f) { return f.result !== "Passed" && f.result !== "Failed"; });
+
+  // ---- tabs ----
+  var TABS = [
+    ["overview", "Overview", ""],
+    ["priorities", "Priorities", failed.length],
+    ["areas", "By area", ""],
+    ["admins", "Admins", D.admins ? (D.admins.tables.filter(function (x) { return x.headers[0] === "User"; })[0] || { rows: [] }).rows.length : ""],
+    ["notassessed", "Not assessed", notAssessed.length],
+    ["method", "How it is scored", ""]
+  ];
+  var tabsEl = $("#tabs");
+  TABS.forEach(function (t, idx) {
+    var b = document.createElement("button");
+    b.type = "button"; b.setAttribute("role", "tab"); b.dataset.tab = t[0];
+    b.setAttribute("aria-selected", idx === 0 ? "true" : "false");
+    b.innerHTML = esc(t[1]) + (t[2] !== "" ? '<span class="n">' + t[2] + "</span>" : "");
+    b.onclick = function () { show(t[0]); };
+    tabsEl.appendChild(b);
+  });
+  function show(name) {
+    TABS.forEach(function (t) { $("#p-" + t[0]).hidden = t[0] !== name; });
+    Array.prototype.forEach.call(tabsEl.children, function (b) { b.setAttribute("aria-selected", b.dataset.tab === name ? "true" : "false"); });
+    window.scrollTo({ top: 0 });
+    if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
+  }
+
+  // ---- finding component ----
+  function findingHtml(f, opts) {
+    opts = opts || {};
+    var bits = [];
+    bits.push('<span class="pill sev-' + esc(f.severity) + '">' + esc(f.severity) + "</span>");
+    var right = [];
+    if (f.result !== "Failed" && f.result !== "Passed") right.push('<span class="pill res-' + esc(f.result) + '">' + esc(f.result) + "</span>");
+    if (f.result === "Passed") right.push('<span class="pill res-Passed">Passed</span>');
+    if (f.quick) right.push('<span class="pill" style="background:var(--accent-soft);color:var(--accent)">Quick win</span>');
+    if (f.result === "Failed" && f.severity !== "Info") right.push('<span class="tag" title="Risk / effort">risk ' + f.risk + " &middot; effort " + f.effort + "</span>");
+    var meta = [esc(f.id), esc(f.areaName || f.area), esc(f.domain)].filter(Boolean).join(" &middot; ");
+    var famLine = f.family ? '<div class="meta">' + f.family.failed + " of " + f.family.total + " scenarios fail</div>" : "";
+    var body = "";
+    if (f.family) {
+      body += '<div class="md"><p><b>' + f.family.failed + "</b> of <b>" + f.family.total + "</b> scenarios fail, " + f.family.passed + " pass" + (f.family.investigate ? ", " + f.family.investigate + " need review" : "") + ".</p>";
+      if (f.family.examples && f.family.examples.length) body += "<p>Examples of failing scenarios:</p><ul>" + f.family.examples.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>";
+      body += "</div>";
+    }
+    if (f.kind === "Licence" || f.kind === "Access" || f.kind === "Error" || f.kind === "Other" || f.kind === "Investigate") {
+      if (f.reason) body += '<div class="why"><b>Why it was not assessed:</b> ' + esc(f.reason) + "</div>";
+    }
+    if (f.desc) body += '<h3>What this checks and why it matters</h3><div class="md">' + md(f.desc) + "</div>";
+    if (f.detail) body += '<h3>What we found</h3><div class="md">' + md(f.detail) + "</div>";
+    var tags = [];
+    if (f.cost && f.cost !== "None") tags.push("Cost: " + f.cost);
+    if (f.impact && f.impact !== "None") tags.push("User impact: " + f.impact);
+    if (f.suite) tags.push(f.suite);
+    (f.mitre || []).slice(0, 6).forEach(function (m) { tags.push(m); });
+    (f.controls || []).slice(0, 4).forEach(function (m) { tags.push(m); });
+    if (tags.length) body += '<div class="tags">' + tags.map(function (t) { return '<span class="tag">' + esc(t) + "</span>"; }).join("") + "</div>";
+    return '<details class="f" id="f-' + esc(f.id).replace(/[^\w-]/g, "_") + '"><summary><div>' + bits.join("") + '</div><div><div class="title">' + esc(f.title) + '</div><div class="meta">' + meta + "</div>" + famLine + '</div><div class="right">' + right.join("") + '</div></summary><div class="body">' + body + "</div></details>";
+  }
+  function openFinding(id) {
+    show("priorities");
+    var el = document.getElementById("f-" + String(id).replace(/[^\w-]/g, "_"));
+    if (!el) { resetFilters(); renderList(); el = document.getElementById("f-" + String(id).replace(/[^\w-]/g, "_")); }
+    if (el) { el.open = true; el.scrollIntoView({ block: "center" }); }
+  }
+
+  // ---- overview ----
+  function band(s) { return s == null ? ["Not scored", "var(--info)", "var(--info-bg)"] : s >= 85 ? ["Strong", "var(--ok)", "var(--ok-bg)"] : s >= 70 ? ["Fair", "var(--med)", "var(--med-bg)"] : s >= 50 ? ["Weak", "var(--high)", "var(--high-bg)"] : ["Poor", "var(--crit)", "var(--crit-bg)"]; }
+  function ring(score) {
+    var r = 70, c = 2 * Math.PI * r, b = band(score), pct = score == null ? 0 : score / 100;
+    return '<svg class="ring" viewBox="0 0 180 180" role="img" aria-label="Score ' + (score == null ? "n/a" : score) + ' out of 100"><circle cx="90" cy="90" r="' + r + '" fill="none" stroke="var(--info-bg)" stroke-width="16"/><circle cx="90" cy="90" r="' + r + '" fill="none" stroke="' + b[1] + '" stroke-width="16" stroke-linecap="round" stroke-dasharray="' + (c * pct) + " " + c + '" transform="rotate(-90 90 90)"/><text x="90" y="92" text-anchor="middle" font-size="44" font-weight="700">' + (score == null ? "-" : score) + '</text><text x="90" y="118" text-anchor="middle" font-size="13" fill="var(--muted)" style="fill:var(--muted)">out of 100</text></svg>';
+  }
+  function overview() {
+    var b = band(D.score), c = D.counts, maxSev = Math.max.apply(null, SEV.slice(0, 4).map(function (s) { return D.severity[s] || 0; }).concat([1]));
+    var h = '<div class="grid g-hero"><div class="panel score"><h2>Risk score</h2>' + ring(D.score) + '<div><span class="band" style="color:' + b[1] + ";background:" + b[2] + '">' + b[0] + "</span></div>" +
+      '<p class="small muted" style="margin:10px 0 0">Weighted share of assessed checks that pass. Coverage ' + (D.coverage == null ? "n/a" : D.coverage + "%") + ".</p></div>";
+    h += '<div class="panel summary"><h2>Summary</h2>' + md(D.summary) +
+      '<div class="kpis"><div class="kpi"><div class="v" style="color:var(--crit)">' + c.failed + '</div><div class="l">Failed</div></div><div class="kpi"><div class="v" style="color:var(--ok)">' + c.passed + '</div><div class="l">Passed</div></div><div class="kpi"><div class="v" style="color:var(--med)">' + c.investigate + '</div><div class="l">Need review</div></div><div class="kpi"><div class="v">' + (c.skipped + c.errors) + '</div><div class="l">Skipped or errored</div></div></div></div></div>';
+    h += '<div class="grid g-2" style="margin-top:16px"><div class="panel"><h2>Failed checks by severity</h2>';
+    SEV.slice(0, 4).forEach(function (s) {
+      var n = D.severity[s] || 0;
+      h += '<div class="row"><span class="name"><span class="pill sev-' + s + '">' + s + '</span></span><div class="bar"><span style="width:' + (100 * n / maxSev) + "%;background:" + SEVCOLOR[s] + '"></span></div><span class="num">' + n + "</span></div>";
+    });
+    h += "</div>";
+    h += '<div class="panel"><h2>Score by area</h2>';
+    D.domains.forEach(function (d) {
+      var bb = band(d.score);
+      h += '<div class="row"><span class="name" title="' + esc(d.name) + '">' + esc(d.name) + '</span><div class="bar"><span style="width:' + (d.score == null ? 0 : d.score) + "%;background:" + bb[1] + '"></span></div><span class="num">' + (d.score == null ? "-" : d.score) + "</span></div>";
+    });
+    h += '<div class="legend"><span><i style="background:var(--ok)"></i>85+ strong</span><span><i style="background:var(--med)"></i>70+ fair</span><span><i style="background:var(--high)"></i>50+ weak</span><span><i style="background:var(--crit)"></i>below 50</span></div></div></div>';
+    var quick = F.filter(function (f) { return f.quick; }).slice(0, 10);
+    h += '<div class="panel" style="margin-top:16px"><h2>Quick wins</h2><p class="small muted" style="margin-top:-6px">High risk, low effort, little user impact. Start here. Select one for the detail.</p>';
+    h += quick.length ? '<div class="quick">' + quick.map(function (f, i) { return '<button class="qitem" type="button" data-id="' + esc(f.id) + '"><b>' + (i + 1) + '.</b><span class="t"><span class="pill sev-' + esc(f.severity) + '">' + esc(f.severity) + "</span> " + esc(f.title) + '<div class="m">' + esc(f.areaName) + " &middot; " + esc(f.id) + "</div></span></button>"; }).join("") + "</div>" : '<div class="empty">No failing check is both high risk and low effort.</div>';
+    h += "</div>";
+    var top = D.topRisks.map(function (id) { return F.filter(function (f) { return f.id === id; })[0]; }).filter(Boolean);
+    h += '<div class="panel" style="margin-top:16px"><h2>Highest risk</h2><p class="small muted" style="margin-top:-6px">The failed checks with the most risk, whatever the effort.</p><div class="quick">' + top.map(function (f, i) { return '<button class="qitem" type="button" data-id="' + esc(f.id) + '"><b>' + (i + 1) + '.</b><span class="t"><span class="pill sev-' + esc(f.severity) + '">' + esc(f.severity) + "</span> " + esc(f.title) + '<div class="m">' + esc(f.areaName) + " &middot; effort " + f.effort + " &middot; " + esc(f.id) + "</div></span></button>"; }).join("") + "</div></div>";
+    $("#p-overview").innerHTML = h;
+    Array.prototype.forEach.call(document.querySelectorAll(".qitem"), function (b2) { b2.onclick = function () { openFinding(b2.dataset.id); }; });
+  }
+
+  // ---- priorities ----
+  var state = { q: "", sev: {}, area: "", result: "Failed", quick: false };
+  function resetFilters() { state = { q: "", sev: {}, area: "", result: "Failed", quick: false }; syncControls(); }
+  function priorities() {
+    var areas = Array.from(new Set(F.map(function (f) { return f.domain; }))).sort();
+    var h = '<div class="filters"><input type="search" id="q" placeholder="Search checks, IDs and text" aria-label="Search">' +
+      SEV.slice(0, 4).map(function (s) { return '<button class="chip" type="button" data-sev="' + s + '" aria-pressed="false">' + s + "</button>"; }).join("") +
+      '<button class="chip" type="button" id="qw" aria-pressed="false">Quick wins</button>' +
+      '<select id="area" aria-label="Area"><option value="">All areas</option>' + areas.map(function (a) { return "<option>" + esc(a) + "</option>"; }).join("") + "</select>" +
+      '<select id="res" aria-label="Result"><option value="Failed">Failed</option><option value="Passed">Passed</option><option value="">All results</option></select></div>' +
+      '<p class="small muted" id="count"></p><div class="list" id="list"></div>';
+    $("#p-priorities").innerHTML = h;
+    $("#q").oninput = function (e) { state.q = e.target.value.toLowerCase(); renderList(); };
+    Array.prototype.forEach.call(document.querySelectorAll("[data-sev]"), function (b) { b.onclick = function () { state.sev[b.dataset.sev] = !state.sev[b.dataset.sev]; syncControls(); renderList(); }; });
+    $("#qw").onclick = function () { state.quick = !state.quick; syncControls(); renderList(); };
+    $("#area").onchange = function (e) { state.area = e.target.value; renderList(); };
+    $("#res").onchange = function (e) { state.result = e.target.value; renderList(); };
+    renderList();
+  }
+  function syncControls() {
+    if (!$("#q")) return;
+    $("#q").value = state.q; $("#area").value = state.area; $("#res").value = state.result;
+    $("#qw").setAttribute("aria-pressed", state.quick ? "true" : "false");
+    Array.prototype.forEach.call(document.querySelectorAll("[data-sev]"), function (b) { b.setAttribute("aria-pressed", state.sev[b.dataset.sev] ? "true" : "false"); });
+  }
+  function renderList() {
+    var anySev = Object.keys(state.sev).some(function (k) { return state.sev[k]; });
+    var rows = F.filter(function (f) {
+      if (state.result === "Failed" && !(f.result === "Failed" && f.severity !== "Info")) return false;
+      if (state.result === "Passed" && f.result !== "Passed") return false;
+      if (anySev && !state.sev[f.severity]) return false;
+      if (state.quick && !f.quick) return false;
+      if (state.area && f.domain !== state.area) return false;
+      if (state.q && (f.title + " " + f.id + " " + f.detail + " " + f.desc + " " + f.areaName).toLowerCase().indexOf(state.q) < 0) return false;
+      return true;
+    });
+    if (state.result !== "Failed") rows = rows.slice().sort(function (a, b) { return b.risk - a.risk; });
+    var shown = rows.slice(0, 150);
+    $("#count").textContent = rows.length + " check" + (rows.length === 1 ? "" : "s") + (state.result === "Failed" ? ", ranked by priority (risk divided by effort)" : "") + (rows.length > shown.length ? ". Showing the first " + shown.length + ". Narrow the filters to see the rest." : "");
+    $("#list").innerHTML = shown.length ? shown.map(function (f) { return findingHtml(f); }).join("") : '<div class="empty">Nothing matches these filters.</div>';
+  }
+
+  // ---- by area ----
+  function areas() {
+    var h = '<div class="panel"><h2>Areas</h2><table class="plain"><thead><tr><th>Area</th><th>Score</th><th class="num">Passed</th><th class="num">Failed</th><th class="num">Not assessed</th><th></th></tr></thead><tbody>';
+    D.domains.forEach(function (d) {
+      var b = band(d.score);
+      h += '<tr><td><b>' + esc(d.name) + '</b></td><td><span class="pill" style="color:' + b[1] + ";background:" + b[2] + '">' + (d.score == null ? "-" : d.score) + " " + b[0] + '</span></td><td class="num">' + d.passed + '</td><td class="num">' + d.failed + '</td><td class="num">' + d.notAssessed + '</td><td><button class="chip" type="button" data-area="' + esc(d.name) + '">View failed</button></td></tr>';
+    });
+    h += "</tbody></table></div>";
+    $("#p-areas").innerHTML = h;
+    Array.prototype.forEach.call(document.querySelectorAll("[data-area]"), function (b) { b.onclick = function () { resetFilters(); state.area = b.dataset.area; show("priorities"); syncControls(); renderList(); }; });
+  }
+
+
+  // ---- admin inventory ----
+  function adminsTab() {
+    var A = D.admins, h = "";
+    if (!A) {
+      $("#p-admins").innerHTML = '<div class="panel"><h2>Admin inventory</h2><p class="muted">This result has no privileged-role data. Rerun the assessment with the current pack (check MP.RESOURCIVE.3010) to list every account that holds a privileged role.</p></div>';
+      return;
+    }
+    h += '<div class="panel" style="margin-bottom:16px"><h2>Who holds a privileged role</h2><p style="margin:0 0 6px">' + inline(A.summary) + "</p>";
+    if (!A.full) h += '<div class="why">This run predates the admin inventory check. The list below comes from the phishing-resistant MFA check, so it shows only administrators that do not yet have a phishing-resistant method, with their roles. It leaves out the others and does not show guest, disabled or synced status. Rerun with the current pack for the full inventory.</div>';
+    h += '<p class="small muted" style="margin:6px 0 0">Privileged roles are those Microsoft marks as privileged. Eligible (PIM) assignments appear only when the tenant has Entra ID P2 or Governance. Members of a group the assessment could not read are missing; the summary says so.</p></div>';
+    A.tables.forEach(function (tb, ti) {
+      var isUsers = tb.headers[0] === "User";
+      h += '<div class="panel" style="margin-bottom:16px"><h2>' + esc(tb.title || "Table") + ' <span class="muted small">(' + tb.rows.length + ")</span></h2>";
+      if (isUsers) h += '<div class="filters"><input type="search" data-admin-q="' + ti + '" placeholder="Filter accounts or roles" aria-label="Filter"><button class="chip" type="button" data-admin-flag="' + ti + '" aria-pressed="false">Marked for review</button></div>';
+      h += '<div class="md"><table data-admin-t="' + ti + '"><thead><tr>' + tb.headers.map(function (x) { return "<th>" + esc(x) + "</th>"; }).join("") + "</tr></thead><tbody></tbody></table></div></div>";
+    });
+    $("#p-admins").innerHTML = h;
+    A.tables.forEach(function (tb, ti) {
+      var body = $('[data-admin-t="' + ti + '"] tbody'), q = "", flagged = false;
+      var reviewCol = tb.headers.indexOf("Review");
+      function draw() {
+        var rows = tb.rows.filter(function (r) {
+          if (flagged && reviewCol >= 0 && !r[reviewCol]) return false;
+          return !q || r.join(" ").toLowerCase().indexOf(q) >= 0;
+        });
+        body.innerHTML = rows.map(function (r) { return "<tr>" + r.map(function (c, ci) { return "<td>" + (ci === reviewCol && c ? '<span class="pill res-Investigate">' + esc(c) + "</span>" : inline(c)) + "</td>"; }).join("") + "</tr>"; }).join("") || '<tr><td colspan="' + tb.headers.length + '" class="muted">Nothing matches.</td></tr>';
+      }
+      draw();
+      var qi = $('[data-admin-q="' + ti + '"]'), fb = $('[data-admin-flag="' + ti + '"]');
+      if (qi) qi.oninput = function (e) { q = e.target.value.toLowerCase(); draw(); };
+      if (fb) { if (reviewCol < 0) fb.hidden = true; fb.onclick = function () { flagged = !flagged; fb.setAttribute("aria-pressed", flagged ? "true" : "false"); draw(); }; }
+    });
+  }
+
+  // ---- not assessed ----
+  var KIND = {
+    Licence: ["Needs a licence the tenant does not have", "Not a failure. The control cannot exist without the licence. Where it matters, the finding is to consider the licence, or check by hand."],
+    Access: ["Needs more access than the sign-in had", "The account lacked a role or permission. Run again with an account that has it, or approve the extra Graph permission."],
+    Error: ["Could not run (error)", "The check failed to run. These are shown so they are never mistaken for a pass."],
+    Investigate: ["Needs a person to review", "The check cannot decide automatically. Each says what to look at."],
+    Other: ["Skipped for another reason", "The reason is shown on each."],
+    NotConnected: ["Service not connected", "A service outside this assessment's scope."],
+    NotApplicable: ["Not applicable here", "The feature is not in use, or the check is retired."]
+  };
+  function notAss() {
+    var h = '<div class="panel" style="margin-bottom:16px"><h2>What was not assessed, and why</h2><p class="muted small" style="margin:0">Coverage is ' + (D.coverage == null ? "n/a" : D.coverage + "%") + ' of in-scope checks. None of the checks below is counted as passed, and none lowers the score.</p></div>';
+    var order = ["Error", "Investigate", "Access", "Licence", "Other", "NotApplicable", "NotConnected"];
+    order.forEach(function (k) {
+      var set = notAssessed.filter(function (f) { return (f.kind || "Other") === k; });
+      if (!set.length) return;
+      h += '<h3 style="margin-top:18px">' + esc(KIND[k][0]) + ' <span class="muted">(' + set.length + ')</span></h3><p class="small muted" style="margin:0 0 8px">' + esc(KIND[k][1]) + '</p><div class="list">' + set.map(function (f) { return findingHtml(f); }).join("") + "</div>";
+    });
+    if (D.notRun && D.notRun.length) {
+      h += '<h3 style="margin-top:18px">Did not run <span class="muted">(' + D.counts.notRun + ')</span></h3><p class="small muted" style="margin:0 0 8px">Optional services and previews that were not part of this assessment.</p><div class="panel"><table class="plain"><tbody>' + D.notRun.map(function (g) { return "<tr><td>" + esc(g.label) + '</td><td class="num">' + g.count + "</td></tr>"; }).join("") + "</tbody></table></div>";
+    }
+    $("#p-notassessed").innerHTML = h;
+  }
+
+  // ---- method ----
+  function method() {
+    var m = D.model, h = '<div class="panel md"><h2>How the ranking works</h2>' +
+      "<p><b>Risk</b> = the check's severity weight x a multiplier for its area, so a gap in privileged access or sign-in counts for more than the same severity in a less exposed area.</p>" +
+      "<p><b>Effort</b> = the check's implementation cost plus its user impact. <b>Priority</b> = risk divided by effort, so cheap fixes for serious gaps come first.</p>" +
+      "<p><b>Quick win</b> = a failed check with risk of at least " + m.quickWin.MinRisk + " and effort of at most " + m.quickWin.MaxEffort + ".</p>" +
+      "<p><b>Score</b> = the risk-weighted share of assessed checks that passed. Skipped, errored and needs-review checks are left out and listed on the Not assessed tab. Informational checks carry no weight. A check that expands into many scenarios counts once.</p>" +
+      "<p><b>Coverage</b> = assessed checks as a share of in-scope checks. Checks for services outside the assessment, retired checks and features not in use are not in scope.</p>" +
+      "<p>Severity, cost and user impact come from each check's own metadata and are general, not specific to this organisation. Confirm the top items with the people who run the tenant before committing a schedule. The weights below are a starting point and can be changed.</p>" +
+      '<h3>Severity weights</h3><table><tbody>' + Object.keys(m.severityWeight).map(function (k) { return "<tr><td>" + esc(k) + "</td><td>" + m.severityWeight[k] + "</td></tr>"; }).join("") + "</tbody></table>" +
+      '<h3>Area multipliers</h3><table><tbody>' + Object.keys(m.areaMultiplier).map(function (k) { return "<tr><td>" + esc(k) + "</td><td>" + m.areaMultiplier[k] + "</td></tr>"; }).join("") + "</tbody></table>" +
+      "<h3>Limits</h3><ul><li>The same weakness can appear in more than one suite (for example a Maester check and a CIS check). The ranking does not merge them yet, so one weakness may be listed more than once.</li><li>A pass means the setting was found as required. It does not prove the control works against an attacker.</li><li>Results describe the tenant at the time of the run.</li></ul></div>";
+    $("#p-method").innerHTML = h;
+  }
+
+  overview(); priorities(); areas(); adminsTab(); notAss(); method();
+  var start = (location.hash || "").slice(1);
+  show(TABS.some(function (t) { return t[0] === start; }) ? start : "overview");
+})();
+</script>
+</body>
+</html>
