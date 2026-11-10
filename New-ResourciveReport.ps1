@@ -467,6 +467,60 @@ foreach ($adminId in 'MP.RESOURCIVE.3010', 'MP.RESOURCIVE.3002') {
     break
 }
 
+
+# ---- Conditional Access scenarios (expected against observed) ----
+function Get-CaCell([string] $Text, [string] $Label) {
+    $m = [regex]::Match($Text, "(?m)^\| $([regex]::Escape($Label)) \| (.*?) \|\s*$")
+    if ($m.Success) { $m.Groups[1].Value } else { '' }
+}
+function Get-CaPolicyName([string] $Text, [string] $Header) {
+    $i = $Text.IndexOf($Header)
+    if ($i -lt 0) { return @() }
+    $rest = $Text.Substring($i + $Header.Length)
+    $stop = [regex]::Match($rest, '(?m)^(\*\*|Why this is expected|>)')
+    if ($stop.Success) { $rest = $rest.Substring(0, $stop.Index) }
+    @([regex]::Matches($rest, '(?m)^\| (.+?) \|') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -notin 'Policy', '---' -and $_ -notmatch '^-+$' })
+}
+$caScenarios = @(foreach ($t in ($tests | Where-Object { $_.ParentId -eq 'MP.RESOURCIVE.CA' -and $_.Result -ne 'NotRun' })) {
+        $text = [string]$t.ResultDetail.TestResult
+        $personaCell = Get-CaCell $text 'Persona'
+        $pm = [regex]::Match($personaCell, '^(.*) \((\S+?)\)$')
+        $persona = if ($pm.Success) { $pm.Groups[1].Value } else { $personaCell }
+        $classLabel = if ($pm.Success) { $pm.Groups[2].Value } else { '' }
+        $classCell = Get-CaCell $text 'Persona class'
+        $users = if ($classCell -match '^(\d+) users?') { [int]$Matches[1] } else { 1 }
+        $included = @(); $excluded = @()
+        if ($classCell -match 'included by: (.*?)(?:; excluded by: (.*))?$') {
+            $included = @($Matches[1] -split ', ' | Where-Object { $_ -and $_ -ne 'none' })
+            if ($Matches[2]) { $excluded = @($Matches[2] -split ', ' | Where-Object { $_ -and $_ -ne 'none' }) }
+        }
+        $app = (Get-CaCell $text 'Signs in to') -replace ' \([0-9a-f-]{36}\)$', ''
+        $expectation = Get-CaCell $text 'Expectation'
+        $why = [regex]::Match($text, '(?m)^Why this is expected: (.*)$')
+        [pscustomobject][ordered]@{
+            id         = [string]$t.Id
+            result     = [string]$t.Result
+            severity   = [string]$t.Severity
+            persona    = Hide-Email $persona
+            kind       = ($classLabel -split ':')[0]
+            class      = $classLabel
+            users      = $users
+            included   = @($included | ForEach-Object { Hide-Email $_ })
+            excluded   = @($excluded | ForEach-Object { Hide-Email $_ })
+            app        = $app
+            client     = Get-CaCell $text 'Client app type'
+            platform   = Get-CaCell $text 'Device platform'
+            location   = Get-CaCell $text 'Location'
+            risk       = Get-CaCell $text 'Sign-in risk / user risk'
+            observed   = Get-CaCell $text 'Observed outcome'
+            expected   = (($expectation -split ' \(')[0])
+            expectNote = $expectation
+            why        = if ($why.Success) { Hide-Email $why.Groups[1].Value } else { '' }
+            enforced   = @(Get-CaPolicyName $text '**Enforced policies that applied**' | ForEach-Object { Hide-Email $_ })
+            reportOnly = @(Get-CaPolicyName $text '**Report-only policies that applied**' | ForEach-Object { Hide-Email $_ })
+        }
+    })
+
 # ---- Summary text ----
 $weakest = @($domains | Where-Object { $null -ne $_.score } | Select-Object -First 2)
 $generated = @()
@@ -504,6 +558,7 @@ $data = [ordered]@{
     licences    = $licences
     changes     = $changes
     admins      = $admins
+    ca          = $caScenarios
     notRun      = $notRunGroups
     summary     = (Hide-Email $summaryText)
     topRisks    = @($topRisks | ForEach-Object id)

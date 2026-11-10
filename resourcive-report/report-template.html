@@ -131,6 +131,7 @@ footer { margin-top: 28px; color: var(--muted); font-size: 12px; }
     <section class="tabpanel" id="p-roadmap" hidden></section>
     <section class="tabpanel" id="p-priorities" hidden></section>
     <section class="tabpanel" id="p-paths" hidden></section>
+    <section class="tabpanel" id="p-ca" hidden></section>
     <section class="tabpanel" id="p-frameworks" hidden></section>
     <section class="tabpanel" id="p-areas" hidden></section>
     <section class="tabpanel" id="p-admins" hidden></section>
@@ -220,6 +221,7 @@ const DATA = /*__DATA__*/null;
     ["roadmap", "Roadmap", D.bands.now + D.bands.next + D.bands.later],
     ["priorities", "Priorities", failed.length],
     ["paths", "Attack paths", ""],
+    ["ca", "Conditional Access", (D.ca && D.ca.length) ? D.ca.filter(function (x) { return x.result === "Failed"; }).length : ""],
     ["frameworks", "Frameworks", ""],
     ["areas", "By area", ""],
     ["admins", "Admins", D.admins ? (D.admins.tables.filter(function (x) { return x.headers[0] === "User"; })[0] || { rows: [] }).rows.length : ""],
@@ -464,6 +466,61 @@ const DATA = /*__DATA__*/null;
     $("#p-paths").innerHTML = h;
   }
 
+
+  // ---- conditional access: expected against observed ----
+  var caState = { kind: "", result: "Failed", app: "", client: "", risk: "", q: "", open: {} };
+  function tally(rows, keyFn) { var m = {}; rows.forEach(function (r) { var ks = keyFn(r); (Array.isArray(ks) ? ks : [ks]).forEach(function (k) { if (k != null && k !== "") m[k] = (m[k] || 0) + 1; }); }); return Object.keys(m).map(function (k) { return [k, m[k]]; }).sort(function (a, b) { return b[1] - a[1]; }); }
+  function uniq(rows, f) { return Array.from(new Set(rows.map(f).filter(Boolean))).sort(); }
+  function caTab() {
+    var CA = D.ca || [], el = $("#p-ca");
+    if (!CA.length) { el.innerHTML = '<div class="panel"><h2>Conditional Access</h2><p class="muted">This result has no Conditional Access scenarios. They run as part of the pack\'s Conditional Access check (MP.RESOURCIVE.CA), which is long-running and is left out when the assessment is run with <code>-SkipLongRunning</code>.</p></div>'; return; }
+    var failedS = CA.filter(function (x) { return x.result === "Failed"; }), inv = CA.filter(function (x) { return x.result === "Investigate"; }), passedS = CA.filter(function (x) { return x.result === "Passed"; });
+    var h = '<div class="panel" style="margin-bottom:16px"><h2>Conditional Access: what should happen against what does</h2><p class="small muted" style="margin:0 0 6px">Each scenario signs in a real user to an application, from a place, on a device, at a risk level, and asks the Conditional Access What-If service what the tenant enforces. <b>Expected</b> is what Resourcive\'s baseline says should happen (for example MFA for everyone on Microsoft 365, a block for legacy protocols). <b>Observed</b> is what the enforced policies do. Report-only policies are shown but not counted as protection.</p>' +
+      '<div class="kpis"><div class="kpi"><div class="v">' + CA.length + '</div><div class="l">Scenarios</div></div><div class="kpi"><div class="v" style="color:var(--ok)">' + passedS.length + '</div><div class="l">Meet the expectation</div></div><div class="kpi"><div class="v" style="color:var(--crit)">' + failedS.length + '</div><div class="l">Do not</div></div><div class="kpi"><div class="v" style="color:var(--med)">' + inv.length + '</div><div class="l">Need review (report-only)</div></div></div></div>';
+
+    // where the gaps are
+    var byKind = tally(failedS, function (r) { return r.kind; });
+    var byGap = tally(failedS, function (r) { return r.kind + " | expected " + r.expected + " | observed " + r.observed; });
+    var byExcl = tally(failedS, function (r) { return r.excluded; });
+    h += '<div class="grid g-2" style="margin-bottom:16px"><div class="panel"><h2>Gaps by kind of sign-in</h2>' + (byGap.length ? fwTable(["Who | Expected | Observed", "Scenarios"], byGap.slice(0, 12).map(function (g) { return "<tr><td>" + esc(g[0]) + '</td><td class="num">' + g[1] + "</td></tr>"; })) : '<p class="muted">No gaps.</p>') + '</div>' +
+      '<div class="panel"><h2>Policy exclusions behind the gaps</h2><p class="small muted" style="margin-top:0">In how many failing scenarios the user was excluded from this policy. A policy near the top is the first place to look.</p>' + (byExcl.length ? fwTable(["Policy the user is excluded from", "Failing scenarios"], byExcl.slice(0, 12).map(function (g) { return "<tr><td>" + esc(g[0]) + '</td><td class="num">' + g[1] + "</td></tr>"; })) : '<p class="muted">None of the failing scenarios is explained by an exclusion. They are not covered by any policy.</p>') + "</div></div>";
+
+    // by user
+    var users = {};
+    CA.forEach(function (r) { var k = r.persona; var u = users[k] = users[k] || { persona: r.persona, kind: r.kind, cls: r.class, size: r.users, total: 0, failed: 0, inv: 0, excluded: {} }; u.total++; if (r.result === "Failed") u.failed++; if (r.result === "Investigate") u.inv++; r.excluded.forEach(function (e) { u.excluded[e] = 1; }); });
+    var userRows = Object.keys(users).map(function (k) { return users[k]; }).sort(function (a, b) { return b.failed - a.failed || a.persona.localeCompare(b.persona); });
+    h += '<div class="panel" style="margin-bottom:16px"><h2>By user <span class="muted small">(' + userRows.length + ' tested)</span></h2><p class="small muted" style="margin-top:0">Privileged users are each tested on their own. Members and guests are tested through one representative per group of similar users, so the class size shows how many people share the result.</p><div class="filters"><input type="search" id="ca-users-q" placeholder="Filter users" aria-label="Filter users"></div><div class="md"><table><thead><tr><th>User</th><th>Kind</th><th>Users like this</th><th>Scenarios</th><th>Failing</th><th>Review</th><th>Excluded from</th></tr></thead><tbody id="ca-users"></tbody></table></div></div>';
+    // explorer
+    h += '<div class="panel"><h2>Scenario explorer</h2><div class="filters"><input type="search" id="ca-q" placeholder="Search user, app, policy"><select id="ca-kind"><option value="">All users</option>' + uniq(CA, function (r) { return r.kind; }).map(function (x) { return "<option>" + esc(x) + "</option>"; }).join("") + '</select><select id="ca-result"><option value="Failed">Failing</option><option value="Investigate">Need review</option><option value="Passed">Meeting the expectation</option><option value="">All results</option></select><select id="ca-app"><option value="">All applications</option>' + uniq(CA, function (r) { return r.app; }).map(function (x) { return "<option>" + esc(x) + "</option>"; }).join("") + '</select><select id="ca-client"><option value="">All clients</option>' + uniq(CA, function (r) { return r.client; }).map(function (x) { return "<option>" + esc(x) + "</option>"; }).join("") + '</select><select id="ca-risk"><option value="">All risk levels</option>' + uniq(CA, function (r) { return r.risk; }).map(function (x) { return "<option>" + esc(x) + "</option>"; }).join("") + '</select></div><p class="small muted" id="ca-count"></p><div class="md"><table><thead><tr><th>User</th><th>Application</th><th>Client, platform</th><th>Location</th><th>Risk</th><th>Expected</th><th>Observed</th></tr></thead><tbody id="ca-rows"></tbody></table></div></div>';
+    el.innerHTML = h;
+
+    function drawUsers() {
+      var q = ($("#ca-users-q").value || "").toLowerCase();
+      var rows = userRows.filter(function (u) { return !q || (u.persona + " " + u.kind + " " + Object.keys(u.excluded).join(" ")).toLowerCase().indexOf(q) >= 0; }).slice(0, 150);
+      $("#ca-users").innerHTML = rows.map(function (u) { return "<tr><td>" + esc(u.persona) + "</td><td>" + esc(u.kind) + '</td><td class="num">' + u.size + '</td><td class="num">' + u.total + '</td><td class="num">' + (u.failed ? '<span class="pill res-Failed">' + u.failed + "</span>" : "0") + '</td><td class="num">' + u.inv + "</td><td>" + esc(Object.keys(u.excluded).join(", ")) + "</td></tr>"; }).join("") || '<tr><td colspan="7" class="muted">Nothing matches.</td></tr>';
+    }
+    function observedPill(r) { return '<span class="pill ' + (r.result === "Failed" ? "res-Failed" : r.result === "Passed" ? "res-Passed" : "res-Investigate") + '">' + esc(r.observed) + (r.result === "Failed" ? " (gap)" : r.result === "Investigate" ? " (review)" : "") + "</span>"; }
+    function drawRows() {
+      var s = caState;
+      var rows = CA.filter(function (r) {
+        if (s.kind && r.kind !== s.kind) return false; if (s.result && r.result !== s.result) return false; if (s.app && r.app !== s.app) return false; if (s.client && r.client !== s.client) return false; if (s.risk && r.risk !== s.risk) return false;
+        return !s.q || (r.persona + " " + r.app + " " + r.enforced.join(" ") + " " + r.reportOnly.join(" ") + " " + r.excluded.join(" ")).toLowerCase().indexOf(s.q) >= 0;
+      });
+      $("#ca-count").textContent = rows.length + " scenario" + (rows.length === 1 ? "" : "s") + (rows.length > 150 ? ". Showing the first 150. Narrow the filters to see the rest." : "") + " Select a row for the policies that applied.";
+      $("#ca-rows").innerHTML = rows.slice(0, 150).map(function (r) {
+        var open = !!caState.open[r.id];
+        var main = '<tr data-ca="' + esc(r.id) + '" style="cursor:pointer"><td>' + esc(r.persona) + '<div class="small muted">' + esc(r.kind) + " &middot; " + r.users + " like this</div></td><td>" + esc(r.app) + "</td><td>" + esc(r.client) + ", " + esc(r.platform) + "</td><td>" + esc(r.location) + "</td><td>" + esc(r.risk) + "</td><td>" + esc(r.expected) + "</td><td>" + observedPill(r) + "</td></tr>";
+        if (!open) return main;
+        return main + '<tr><td colspan="7"><div class="small"><b>Why this is expected:</b> ' + esc(r.why || r.expectNote) + "</div><div class=\"small\" style=\"margin-top:6px\"><b>Enforced policies that applied:</b> " + (r.enforced.length ? esc(r.enforced.join(", ")) : "none") + "</div>" + (r.reportOnly.length ? '<div class="small"><b>Report-only (not counted):</b> ' + esc(r.reportOnly.join(", ")) + "</div>" : "") + '<div class="small"><b>User is included in:</b> ' + (r.included.length ? esc(r.included.join(", ")) : "none") + "</div>" + (r.excluded.length ? '<div class="small"><b>Excluded from:</b> ' + esc(r.excluded.join(", ")) + "</div>" : "") + '<div class="small muted" style="margin-top:6px">' + esc(r.id) + "</div></td></tr>";
+      }).join("") || '<tr><td colspan="7" class="muted">Nothing matches these filters.</td></tr>';
+      Array.prototype.forEach.call(document.querySelectorAll("#ca-rows tr[data-ca]"), function (tr) { tr.onclick = function () { caState.open[tr.dataset.ca] = !caState.open[tr.dataset.ca]; drawRows(); }; });
+    }
+    $("#ca-users-q").oninput = drawUsers;
+    $("#ca-q").oninput = function (e) { caState.q = e.target.value.toLowerCase(); drawRows(); };
+    [["kind", "ca-kind"], ["result", "ca-result"], ["app", "ca-app"], ["client", "ca-client"], ["risk", "ca-risk"]].forEach(function (p) { var sel = $("#" + p[1]); sel.value = caState[p[0]]; sel.onchange = function (e) { caState[p[0]] = e.target.value; drawRows(); }; });
+    drawUsers(); drawRows();
+  }
+
   // ---- frameworks ----
   var STATE_CLASS = { Passed: "res-Passed", Failed: "res-Failed", "Not assessed": "res-Skipped" };
   function fwTable(headers, rows) { return '<div class="md"><table><thead><tr>' + headers.map(function (x) { return "<th>" + esc(x) + "</th>"; }).join("") + "</tr></thead><tbody>" + rows.join("") + "</tbody></table></div>"; }
@@ -574,7 +631,7 @@ const DATA = /*__DATA__*/null;
     $("#p-method").innerHTML = h;
   }
 
-  overview(); roadmap(); priorities(); paths(); frameworks(); areas(); adminsTab(); licences(); changes(); notAss(); method();
+  overview(); roadmap(); priorities(); paths(); caTab(); frameworks(); areas(); adminsTab(); licences(); changes(); notAss(); method();
   var start = (location.hash || "").slice(1);
   show(TABS.some(function (t) { return t[0] === start; }) ? start : "overview");
 })();
