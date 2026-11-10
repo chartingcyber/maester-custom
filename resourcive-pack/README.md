@@ -208,6 +208,8 @@ Roles marked (unverified) were not confirmed against a tenant and need testing.
 | 3007 | Secure Score gaps (Info) | Info | none | SecurityEvents.Read.All |
 | 3008 | Broad Graph application permissions on third-party or owner-less apps (long-running) | High | none | Application.Read.All, Directory.Read.All |
 | 3009 | Successful legacy-protocol sign-ins, interactive and non-interactive. Defender advanced hunting; Investigate with manual steps without Entra ID P2 | High | Entra P2 (for the automatic check) | ThreatHunting.Read.All and a role with advanced hunting access, such as Security Reader |
+| 3010 | Privileged role inventory: every account that holds a privileged role, the roles, and marks for guest, disabled, synced, many roles and no MFA (Info; Investigate) | Info | none (MFA column needs Entra P1) | RoleManagement.Read.Directory, Directory.Read.All, AuditLog.Read.All |
+| 3011 | Every enabled privileged user can complete MFA | High | Entra P1 | AuditLog.Read.All, RoleManagement.Read.Directory |
 | CA | Conditional Access What-If scenarios (family, long-running) | per row | Entra P1 (risk axes need P2) | Policy.Read.All or Policy.Read.ConditionalAccess, User.Read.All, GroupMember.Read.All, RoleManagement.Read.Directory |
 
 ### Conditional Access What-If family (`MP.RESOURCIVE.CA`)

@@ -8,7 +8,7 @@ function Test-ResPrivilegedRoleInventory {
     assignments of the roles Microsoft marks as privileged. Role-assignable groups are expanded to their user
     members. The result is an inventory for a person to review, so it never fails: it is Investigate when anyone
     holds a role. Each row is marked when the account is a guest, disabled, synced from on-premises Active Directory,
-    or holds many roles, because those are the accounts that most often should not be privileged. Service principals
+    or holds many roles, or cannot complete multifactor authentication, because those are the accounts that most often should not be privileged. Service principals
     that hold roles are not listed.
     #>
     [MaesterTest(
@@ -21,7 +21,7 @@ function Test-ResPrivilegedRoleInventory {
         Severity     = 'Info',
         Mitre        = 'None',
         Service      = 'Graph',
-        Permission   = ('Graph:Scope:RoleManagement.Read.Directory', 'Graph:Scope:Directory.Read.All')
+        Permission   = ('Graph:Scope:RoleManagement.Read.Directory', 'Graph:Scope:Directory.Read.All', 'Graph:Scope:AuditLog.Read.All')
     )]
     [CmdletBinding()]
     [OutputType([bool])]
@@ -46,17 +46,30 @@ function Test-ResPrivilegedRoleInventory {
         return $true
     }
 
+    # MFA capability needs Entra ID P1 and AuditLog.Read.All. Without them the column says Unknown; it is never a guess.
+    $registrations = @{}
+    $mfaNote = ''
+    try {
+        foreach ($registration in @(Invoke-MtGraphRequest -RelativeUri 'reports/authenticationMethods/userRegistrationDetails' -ApiVersion v1.0 -ErrorAction Stop)) { $registrations[[string]$registration.id] = $registration }
+    } catch {
+        $mfaNote = ' MFA capability could not be read (it needs Entra ID P1 and the AuditLog.Read.All permission), so the MFA column shows Unknown.'
+    }
+
     $rows = foreach ($user in ($privileged | Sort-Object { -@($_.Roles).Count }, UserPrincipalName)) {
         $marks = [System.Collections.Generic.List[string]]::new()
         if ($user.UserType -eq 'Guest') { $marks.Add('Guest') }
         if ($user.AccountEnabled -eq $false) { $marks.Add('Disabled') }
         if ($user.OnPremisesSyncEnabled) { $marks.Add('Synced from on-premises') }
         if (@($user.Roles).Count -ge $ManyRoles) { $marks.Add("$(@($user.Roles).Count) roles") }
+        $registration = $registrations[[string]$user.Id]
+        $mfa = if (-not $registration) { 'Unknown' } elseif ($registration.isMfaCapable) { 'Capable' } else { 'Not capable' }
+        if ($mfa -eq 'Not capable' -and $user.AccountEnabled -ne $false) { $marks.Add('No MFA') }
         [pscustomobject]@{
             User     = $user.UserPrincipalName
             Type     = if ($user.UserType) { $user.UserType } else { 'Member' }
             Enabled  = if ($user.AccountEnabled -eq $false) { 'No' } else { 'Yes' }
             Source   = if ($user.OnPremisesSyncEnabled) { 'Synced' } else { 'Cloud' }
+            Mfa      = $mfa
             Active   = (@($user.ActiveRoles) -join ', ')
             Eligible = (@($user.EligibleRoles) -join ', ')
             Review   = ($marks -join '; ')
@@ -76,13 +89,13 @@ function Test-ResPrivilegedRoleInventory {
     $byRole = @($byRole | Sort-Object Holders -Descending)
 
     $flagged = @($rows | Where-Object { $_.Review })
-    $summary = "$($rows.Count) account(s) hold a privileged role, as of $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC. $($flagged.Count) are marked for review (guest, disabled, synced from on-premises, or $ManyRoles or more roles)."
-    $note = Get-ResPrivilegedUserNote -User $privileged
+    $summary = "$($rows.Count) account(s) hold a privileged role, as of $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC. $($flagged.Count) are marked for review (guest, disabled, synced from on-premises, not MFA capable, or $ManyRoles or more roles)."
+    $note = (Get-ResPrivilegedUserNote -User $privileged) + $mfaNote
 
     $roleTable = "| Role | Holders | Active | Eligible |`n| --- | --- | --- | --- |`n" +
         (($byRole | ForEach-Object { "| $($_.Role) | $($_.Holders) | $($_.Active) | $($_.Eligible) |" }) -join "`n")
-    $userTable = "| User | Type | Enabled | Source | Active roles | Eligible roles | Review |`n| --- | --- | --- | --- | --- | --- | --- |`n" +
-        (($rows | Select-Object -First $MaximumRows | ForEach-Object { "| $($_.User) | $($_.Type) | $($_.Enabled) | $($_.Source) | $($_.Active) | $($_.Eligible) | $($_.Review) |" }) -join "`n")
+    $userTable = "| User | Type | Enabled | Source | MFA | Active roles | Eligible roles | Review |`n| --- | --- | --- | --- | --- | --- | --- | --- |`n" +
+        (($rows | Select-Object -First $MaximumRows | ForEach-Object { "| $($_.User) | $($_.Type) | $($_.Enabled) | $($_.Source) | $($_.Mfa) | $($_.Active) | $($_.Eligible) | $($_.Review) |" }) -join "`n")
     $more = if ($rows.Count -gt $MaximumRows) { "`n`nShowing the first $MaximumRows of $($rows.Count) accounts." } else { '' }
 
     Add-MtTestResultDetail -Result "$summary$note`n`n**Holders by role**`n`n$roleTable`n`n**Accounts**`n`n$userTable$more" -Investigate

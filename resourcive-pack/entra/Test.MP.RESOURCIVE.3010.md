@@ -2,9 +2,9 @@ Every account that holds a privileged Microsoft Entra role, with the roles it ho
 
 Privileged roles let the holder change security settings, read sensitive data or take over other accounts. Attackers go after these accounts first, so the list should be short, every name on it should be expected, and each account should be used only for administration. This check reads the active and, when the tenant has Entra ID P2 or Governance, the eligible role assignments for the roles Microsoft marks as privileged, and expands role-assignable groups to their members. It never fails. When anyone holds a role the result is **Investigate**, because only the organization can say who should be on the list.
 
-Each account is marked when it is a **guest**, **disabled**, **synced from on-premises Active Directory** (an on-premises compromise then reaches the cloud role), or holds **three or more roles**. Service principals that hold roles are not listed. When the tenant has no Entra ID P2, eligible assignments cannot be read, so accounts that only hold roles through Privileged Identity Management are missing; the result says so. When a group that holds a role cannot be read, its members are missing and the result names the group.
+Each account is marked when it is a **guest**, **disabled**, **synced from on-premises Active Directory** (an on-premises compromise then reaches the cloud role), holds **three or more roles**, or is **not MFA capable** (no second method registered; this needs Entra ID P1, and the column shows Unknown without it). Service principals that hold roles are not listed. When the tenant has no Entra ID P2, eligible assignments cannot be read, so accounts that only hold roles through Privileged Identity Management are missing; the result says so. When a group that holds a role cannot be read, its members are missing and the result names the group.
 
-Reading role assignments needs the `RoleManagement.Read.Directory` and `Directory.Read.All` permissions.
+Reading role assignments needs the `RoleManagement.Read.Directory` and `Directory.Read.All` permissions, and the MFA column also needs `AuditLog.Read.All`.
 
 #### Remediation action
 

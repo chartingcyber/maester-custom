@@ -19,19 +19,49 @@ Describe 'Entra checks' {
     Context 'MP.RESOURCIVE.3010 privileged role inventory' {
         It 'lists accounts and roles, marks risky ones and is Investigate' {
             Mock Get-ResPrivilegedUser {
-                @([pscustomobject]@{ UserPrincipalName = 'ga@contoso.com'; UserType = 'Member'; AccountEnabled = $true; OnPremisesSyncEnabled = $false; Roles = @('Global Administrator'); ActiveRoles = @('Global Administrator'); EligibleRoles = @(); EligibleReadable = $true; UnreadableGroups = @() },
-                    [pscustomobject]@{ UserPrincipalName = 'ext@fabrikam.com'; UserType = 'Guest'; AccountEnabled = $true; OnPremisesSyncEnabled = $false; Roles = @('User Administrator', 'Exchange Administrator', 'Helpdesk Administrator'); ActiveRoles = @('User Administrator'); EligibleRoles = @('Exchange Administrator', 'Helpdesk Administrator'); EligibleReadable = $true; UnreadableGroups = @() })
+                @([pscustomobject]@{ Id = 'u1'; UserPrincipalName = 'ga@contoso.com'; UserType = 'Member'; AccountEnabled = $true; OnPremisesSyncEnabled = $false; Roles = @('Global Administrator'); ActiveRoles = @('Global Administrator'); EligibleRoles = @(); EligibleReadable = $true; UnreadableGroups = @() },
+                    [pscustomobject]@{ Id = 'u2'; UserPrincipalName = 'ext@fabrikam.com'; UserType = 'Guest'; AccountEnabled = $true; OnPremisesSyncEnabled = $false; Roles = @('User Administrator', 'Exchange Administrator', 'Helpdesk Administrator'); ActiveRoles = @('User Administrator'); EligibleRoles = @('Exchange Administrator', 'Helpdesk Administrator'); EligibleReadable = $true; UnreadableGroups = @() })
             }
+            Mock Invoke-MtGraphRequest { @([pscustomobject]@{ id = 'u1'; isMfaCapable = $true }, [pscustomobject]@{ id = 'u2'; isMfaCapable = $false }) }
             Test-ResPrivilegedRoleInventory | Should -BeTrue
             $detail[-1].Investigate | Should -BeTrue
             $detail[-1].Result | Should -Match '2 account\(s\) hold a privileged role'
-            $detail[-1].Result | Should -Match 'ext@fabrikam.com \| Guest \| Yes \| Cloud \| User Administrator \| Exchange Administrator, Helpdesk Administrator \| Guest; 3 roles'
+            $detail[-1].Result | Should -Match 'ext@fabrikam.com \| Guest \| Yes \| Cloud \| Not capable \| User Administrator \| Exchange Administrator, Helpdesk Administrator \| Guest; 3 roles; No MFA'
             $detail[-1].Result | Should -Match '\| Global Administrator \| 1 \| 1 \| 0 \|'
+        }
+        It 'shows Unknown rather than guessing when MFA registration cannot be read' {
+            Mock Get-ResPrivilegedUser { @([pscustomobject]@{ Id = 'u1'; UserPrincipalName = 'ga@contoso.com'; UserType = 'Member'; AccountEnabled = $true; OnPremisesSyncEnabled = $false; Roles = @('Global Administrator'); ActiveRoles = @('Global Administrator'); EligibleRoles = @(); EligibleReadable = $true; UnreadableGroups = @() }) }
+            Mock Invoke-MtGraphRequest { throw 'Forbidden' }
+            Test-ResPrivilegedRoleInventory | Should -BeTrue
+            $detail[-1].Result | Should -Match '\| Cloud \| Unknown \|'
+            $detail[-1].Result | Should -Match 'MFA capability could not be read'
         }
         It 'passes plainly when nobody holds a role' {
             Mock Get-ResPrivilegedUser { }
             Test-ResPrivilegedRoleInventory | Should -BeTrue
             $detail[-1].Investigate | Should -BeFalse
+        }
+    }
+
+    Context 'MP.RESOURCIVE.3011 privileged users can do MFA' {
+        BeforeEach {
+            Mock Get-ResPrivilegedUser { @([pscustomobject]@{ Id = 'u1'; UserPrincipalName = 'a@c.com'; Roles = @('Global Administrator'); AccountEnabled = $true; EligibleReadable = $true; UnreadableGroups = @() }, [pscustomobject]@{ Id = 'u2'; UserPrincipalName = 'off@c.com'; Roles = @('User Administrator'); AccountEnabled = $false; EligibleReadable = $true; UnreadableGroups = @() }) }
+        }
+        It 'passes when every enabled administrator is MFA capable and ignores disabled ones' {
+            Mock Invoke-MtGraphRequest { @([pscustomobject]@{ id = 'u1'; isMfaCapable = $true; methodsRegistered = @('fido2') }, [pscustomobject]@{ id = 'u2'; isMfaCapable = $false }) }
+            Test-ResPrivilegedMfaCapable | Should -BeTrue
+            $detail[-1].Result | Should -Match 'Well done. 1 of 1'
+        }
+        It 'fails and names an administrator that cannot do MFA' {
+            Mock Invoke-MtGraphRequest { @([pscustomobject]@{ id = 'u1'; isMfaCapable = $false; isMfaRegistered = $false; methodsRegistered = @() }) }
+            Test-ResPrivilegedMfaCapable | Should -BeFalse
+            $detail[-1].Investigate | Should -BeFalse
+            $detail[-1].Result | Should -Match 'a@c.com \| Global Administrator \| Not MFA capable'
+        }
+        It 'is Investigate, not a failure, when there is no registration record' {
+            Mock Invoke-MtGraphRequest { @() }
+            Test-ResPrivilegedMfaCapable | Should -BeFalse
+            $detail[-1].Investigate | Should -BeTrue
         }
     }
 
