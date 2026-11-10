@@ -78,7 +78,12 @@ function Get-ResPrivilegedUser {
                         Where-Object { $_.'@odata.type' -eq '#microsoft.graph.user' })
             } catch {
                 # Never fail every privileged-user check because one group cannot be read; report it instead.
-                $unreadableGroups.Add("$GroupId ($($_.Exception.Message.Split("`n")[0]))")
+                $reason = $_.Exception.Message.Split("`n")[0]
+                # A deleted group can keep a role assignment for a while and then answers 404. Say so: it has no members.
+                $deleted = $null
+                try { $deleted = Invoke-MtGraphRequest -RelativeUri "directory/deletedItems/microsoft.graph.group/$GroupId" -ApiVersion v1.0 -ErrorAction Stop } catch { }
+                if ($deleted) { $reason = 'a deleted group that still holds the role assignment, so it has no members' }
+                $unreadableGroups.Add("$GroupId ($reason)")
                 @()
             }
         }

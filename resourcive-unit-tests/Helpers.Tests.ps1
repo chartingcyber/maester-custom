@@ -248,6 +248,22 @@ Describe 'Get-ResPrivilegedUser' {
         }
     }
 
+    Context 'a deleted role-holding group' {
+        It 'recognises a deleted group that still holds a role assignment' {
+            $script:untyped = $false
+            Mock Invoke-MtGraphRequest {
+                switch -Wildcard ($RelativeUri) {
+                    'roleManagement/directory/roleDefinitions' { @([pscustomobject]@{ id = 'r1'; displayName = 'Global Administrator'; isPrivileged = $true }) }
+                    'roleManagement/directory/roleAssignments' { @([pscustomobject]@{ roleDefinitionId = 'r1'; principal = [pscustomobject]@{ '@odata.type' = '#microsoft.graph.group'; id = 'g1' } }, [pscustomobject]@{ roleDefinitionId = 'r1'; principal = [pscustomobject]@{ '@odata.type' = '#microsoft.graph.user'; id = 'u1'; userPrincipalName = 'a@c.com' } }) }
+                    'groups/g1/transitiveMembers*' { throw 'Response status code does not indicate success: NotFound (Not Found).' }
+                    'directory/deletedItems/microsoft.graph.group/g1' { [pscustomobject]@{ id = 'g1'; deletedDateTime = '2026-10-01T00:00:00Z' } }
+                }
+            }
+            $users = @(Get-ResPrivilegedUser -ActiveOnly -WarningAction SilentlyContinue)
+            $users[0].UnreadableGroups[0] | Should -BeLike 'g1 (a deleted group that still holds the role assignment*'
+        }
+    }
+
     Context 'Get-ResGraphPage' {
         It 'unwraps a raw response, reports more rows and accepts hashtables and plain rows' {
             $page = Get-ResGraphPage ([pscustomobject]@{ value = @([pscustomobject]@{ id = 1 }, [pscustomobject]@{ id = 2 }); '@odata.nextLink' = 'next' })
