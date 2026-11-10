@@ -117,5 +117,8 @@ function Format-ResCaResult {
     }
     if ($Expectation.Note) { $null = $text.AppendLine(); $null = $text.AppendLine("Why this is expected: $($Expectation.Note)") }
     foreach ($n in @($Note | Where-Object { $_ })) { $null = $text.AppendLine(); $null = $text.AppendLine("> $n") }
-    $text.ToString()
+    # A scenario result must stay small: Maester's CSV export is very slow on a result over 30000 characters.
+    $final = $text.ToString()
+    if ($final.Length -gt 20000) { $final = $final.Substring(0, 20000) + "`n`n*(shortened to keep the report fast)*" }
+    $final
 }

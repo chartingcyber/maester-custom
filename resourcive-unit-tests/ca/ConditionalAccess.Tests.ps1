@@ -252,6 +252,23 @@ Describe 'Get-ResCaAxis' {
         $axis.SignInRiskLevels | Should -Be @('High')
         $axis.UserRiskLevels | Should -Be @('High')
     }
+    It 'keeps the home-location note short however many countries a block policy matches' {
+        $codes = @(foreach ($a in [char[]]'ABCDEFGHIJ') { foreach ($b in [char[]]'ABCDEFGHIJKLMNOPQRST') { "$a$b" } })
+        $loc = [pscustomobject]@{ '@odata.type' = '#microsoft.graph.countryNamedLocation'; id = 'loc1'; countriesAndRegions = $codes }
+        $blockPolicy = [pscustomobject]@{ state = 'enabled'; displayName = 'Block everywhere else'; grantControls = [pscustomobject]@{ builtInControls = @('block') }; conditions = [pscustomobject]@{ applications = [pscustomobject]@{ includeApplications = @('All'); excludeApplications = @(); includeUserActions = @() }; platforms = $null; locations = [pscustomobject]@{ includeLocations = @('loc1'); excludeLocations = @() } } }
+        $axis = Get-ResCaAxis -Policy @($blockPolicy) -NamedLocation @($loc) -P2Licensed $false
+        $note = @($axis.Notes | Where-Object { $_ -like 'Home location*' })[0]
+        $note | Should -Match 'Skipped as home: 200 countries'
+        $note.Length | Should -BeLessThan 1000
+    }
+    It 'caps a scenario result so the Maester CSV export stays fast' {
+        Mock Invoke-MtGraphRequest { @() }
+        $persona = [pscustomobject]@{ Key = 'member-c01'; Kind = 'Member'; Label = 'Member:class-1'; UserId = 'm'; UserPrincipalName = 'm@c.com'; ClassSize = 3; ClassPolicies = @(); IsEmergencyAccess = $false }
+        $app = [pscustomobject]@{ Key = 'exo'; Name = 'Office 365 Exchange Online'; Id = '00000002-0000-0ff1-ce00-000000000000'; Group = 'Other' }
+        $scenario = [pscustomobject]@{ Persona = $persona; App = $app; UserAction = $null; ClientAppType = 'browser'; DevicePlatform = 'windows'; Country = 'US'; IpAddress = $null; LocationKey = 'home'; SignInRiskLevel = 'None'; UserRiskLevel = 'None' }
+        $text = Format-ResCaResult -Scenario $scenario -Outcome (Get-ResCaOutcome -Result @()) -Expectation ([pscustomobject]@{ Expect = 'Info'; Severity = 'Info'; Source = 'Default'; Note = '' }) -Verdict ([pscustomobject]@{ Status = 'Investigate'; Reason = 'r'; Severity = $null }) -Cache @{} -Note @('x' * 50000)
+        $text.Length | Should -BeLessThan 21000
+    }
     It 'treats unknown P2 as not licensed' {
         (Get-ResCaAxis -Policy $policies -P2Licensed $null).SignInRiskLevels.Count | Should -Be 0
     }
@@ -452,7 +469,7 @@ Describe 'Get-ResCaAxis platforms, home location and notes' {
         $axis = Get-ResCaAxis -Policy $policies -NamedLocation $locs -P2Licensed $false
         ($axis.Locations | Where-Object { $_.Key -eq 'home' }).Country | Should -Be 'IE'
         ($axis.Notes -join ' ') | Should -Match 'Home location: IE chosen'
-        ($axis.Notes -join ' ') | Should -Match 'GB -> Geoblock GB \(block, report-only\)'
+        ($axis.Notes -join ' ') | Should -Match 'Skipped as home: 1 country \(GB\), matched by Geoblock GB \(block, report-only\)'
     }
     It 'treats a country that a block policy allow-lists as blocked for everyone else' {
         $locs = @((New-Country 'loc-gb' @('GB')), (New-Country 'loc-fr' @('FR')))

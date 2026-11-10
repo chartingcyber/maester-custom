@@ -122,8 +122,17 @@ function Get-ResCaAxis {
         }
     }
     if (-not $homeCountry) { $homeCountry = 'US'; $homeWhy = 'the neutral default US, although a policy matches it too (every candidate collided)' }
-    $skipped = @($countries | Where-Object { $collisions.ContainsKey($_) -and $_ -ne $homeCountry } | ForEach-Object { "$_ -> $($collisions[$_] -join ', ')" })
-    $notes.Add("Home location: $homeCountry chosen as $homeWhy.$(if ($skipped.Count -gt 0) { " Skipped as home: $($skipped -join '; ')." })")
+    # Summarise the skipped countries. Listing each one with its policies made this note tens of kilobytes, and it is
+    # copied into every scenario result, which made the Maester CSV export take many minutes.
+    $skippedCodes = @($countries | Where-Object { $collisions.ContainsKey($_) -and $_ -ne $homeCountry })
+    $skippedPolicies = @($skippedCodes | ForEach-Object { $collisions[$_] } | Select-Object -Unique)
+    $skippedText = ''
+    if ($skippedCodes.Count -gt 0) {
+        $shown = @($skippedCodes | Select-Object -First 8) -join ', '
+        $more = if ($skippedCodes.Count -gt 8) { " and $($skippedCodes.Count - 8) more" } else { '' }
+        $skippedText = " Skipped as home: $($skippedCodes.Count) countr$(if ($skippedCodes.Count -eq 1) { 'y' } else { 'ies' }) ($shown$more), matched by $(@($skippedPolicies | Select-Object -First 5) -join ', ')$(if ($skippedPolicies.Count -gt 5) { " and $($skippedPolicies.Count - 5) more" })."
+    }
+    $notes.Add("Home location: $homeCountry chosen as $homeWhy.$skippedText")
     $locations = [System.Collections.Generic.List[object]]::new()
     $locations.Add([pscustomobject]@{ Key = 'home'; Label = 'home'; Country = $homeCountry; IpAddress = $trustedIp })
     $outside = @('RU', 'NG', 'BR', 'VN', 'KP', 'IR') | Where-Object { $countries -notcontains $_ -and $_ -ne $homeCountry } | Select-Object -First 1
