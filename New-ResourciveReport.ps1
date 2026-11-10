@@ -8,8 +8,9 @@ Reads assessment.json (from Invoke-Maester or Invoke-ResourciveAssessment.ps1) a
 file that works offline. Findings are ranked by risk and effort using resourcive-report/risk-model.json, which you
 can edit. The report shows a score, the quick wins, every finding by area, and what could not be assessed and why.
 
-Nothing is sent anywhere. By default email addresses in the result text are masked (j***@contoso.com); device names
-and IP addresses are not. Use -ShowNames to leave email addresses as they are.
+Nothing is sent anywhere. Email addresses are shown in full, because an administrator inventory is only useful when
+you can tell who the accounts are. Use -MaskNames before sharing the file outside the people who run the tenant: it
+keeps the first three characters of each address (joh***@contoso.com). Device names and IP addresses are not masked.
 
 How the numbers are made:
  - Each failed check has a risk: severity weight x area multiplier (risk-model.json).
@@ -33,8 +34,8 @@ Report title. Default: the tenant name from the result.
 Optional text or markdown file whose content replaces the generated summary on the first page. Use it for your own
 analysis of the tenant.
 
-.PARAMETER ShowNames
-Do not mask email addresses.
+.PARAMETER MaskNames
+Mask email addresses, keeping the first three characters of each, for a copy that leaves the team.
 
 .EXAMPLE
 ./New-ResourciveReport.ps1 -ResultPath ./test-results/contoso.com_20261109-174608
@@ -45,7 +46,7 @@ param(
     [string] $OutputPath,
     [string] $Title,
     [string] $SummaryPath,
-    [switch] $ShowNames
+    [switch] $MaskNames
 )
 
 $ErrorActionPreference = 'Stop'
@@ -64,8 +65,8 @@ function Get-Weight($table, $key, $default) {
 }
 
 function Hide-Email([string] $Text) {
-    if ($ShowNames -or -not $Text) { return $Text }
-    [regex]::Replace($Text, '(?<![\w.+-])([A-Za-z0-9_])[A-Za-z0-9._+\-#%]*@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})', '$1***@$2')
+    if (-not $MaskNames -or -not $Text) { return $Text }
+    [regex]::Replace($Text, '(?<![\w.+-])([A-Za-z0-9_]{1,3})[A-Za-z0-9._+\-#%]*@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})', '$1***@$2')
 }
 
 function Limit([string] $Text, [int] $Max) {
@@ -270,7 +271,7 @@ $data = [ordered]@{
         executedAt = [string]$result.ExecutedAt
         duration   = [string]$result.TotalDuration
         version    = [string]$result.LatestVersion
-        masked     = (-not $ShowNames)
+        masked     = [bool]$MaskNames
         generated  = (Get-Date).ToString('yyyy-MM-dd HH:mm')
     }
     score    = $overallScore
