@@ -394,9 +394,9 @@ const DATA = /*__DATA__*/null;
     if (!A.full) h += '<div class="why">This run predates the admin inventory check. The list below comes from the phishing-resistant MFA check, so it shows only administrators that do not yet have a phishing-resistant method, with their roles. It leaves out the others and does not show guest, disabled or synced status. Rerun with the current pack for the full inventory.</div>';
     h += '<p class="small muted" style="margin:6px 0 0">Privileged roles are those Microsoft marks as privileged. Eligible (PIM) assignments appear only when the tenant has Entra ID P2 or Governance. Members of a group the assessment could not read are missing; the summary says so.</p></div>';
     A.tables.forEach(function (tb, ti) {
-      var isUsers = tb.headers[0] === "User";
+      var isUsers = tb.headers[0] === "User" || tb.headers[0] === "Application";
       h += '<div class="panel" style="margin-bottom:16px"><h2>' + esc(tb.title || "Table") + ' <span class="muted small">(' + tb.rows.length + ")</span></h2>";
-      if (isUsers) h += '<div class="filters"><input type="search" data-admin-q="' + ti + '" placeholder="Filter accounts or roles" aria-label="Filter"><button class="chip" type="button" data-admin-flag="' + ti + '" aria-pressed="false">Marked for review</button></div>';
+      if (isUsers) h += '<div class="filters"><input type="search" data-admin-q="' + ti + '" placeholder="Filter by name or role" aria-label="Filter"><button class="chip" type="button" data-admin-flag="' + ti + '" aria-pressed="false">Marked for review</button></div>';
       h += '<div class="md"><table data-admin-t="' + ti + '"><thead><tr>' + tb.headers.map(function (x) { return "<th>" + esc(x) + "</th>"; }).join("") + "</tr></thead><tbody></tbody></table></div></div>";
     });
     $("#p-admins").innerHTML = h;

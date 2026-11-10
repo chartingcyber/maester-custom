@@ -22,6 +22,7 @@ Describe 'Entra checks' {
                 @([pscustomobject]@{ Id = 'u1'; UserPrincipalName = 'ga@contoso.com'; UserType = 'Member'; AccountEnabled = $true; OnPremisesSyncEnabled = $false; Roles = @('Global Administrator'); ActiveRoles = @('Global Administrator'); EligibleRoles = @(); EligibleReadable = $true; UnreadableGroups = @() },
                     [pscustomobject]@{ Id = 'u2'; UserPrincipalName = 'ext@fabrikam.com'; UserType = 'Guest'; AccountEnabled = $true; OnPremisesSyncEnabled = $false; Roles = @('User Administrator', 'Exchange Administrator', 'Helpdesk Administrator'); ActiveRoles = @('User Administrator'); EligibleRoles = @('Exchange Administrator', 'Helpdesk Administrator'); EligibleReadable = $true; UnreadableGroups = @() })
             }
+            Mock Get-ResPrivilegedServicePrincipal { @() }
             Mock Invoke-MtGraphRequest { @([pscustomobject]@{ id = 'u1'; isMfaCapable = $true }, [pscustomobject]@{ id = 'u2'; isMfaCapable = $false }) }
             Test-ResPrivilegedRoleInventory | Should -BeTrue
             $detail[-1].Investigate | Should -BeTrue
@@ -31,13 +32,27 @@ Describe 'Entra checks' {
         }
         It 'shows Unknown rather than guessing when MFA registration cannot be read' {
             Mock Get-ResPrivilegedUser { @([pscustomobject]@{ Id = 'u1'; UserPrincipalName = 'ga@contoso.com'; UserType = 'Member'; AccountEnabled = $true; OnPremisesSyncEnabled = $false; Roles = @('Global Administrator'); ActiveRoles = @('Global Administrator'); EligibleRoles = @(); EligibleReadable = $true; UnreadableGroups = @() }) }
+            Mock Get-ResPrivilegedServicePrincipal { @() }
             Mock Invoke-MtGraphRequest { throw 'Forbidden' }
             Test-ResPrivilegedRoleInventory | Should -BeTrue
             $detail[-1].Result | Should -Match '\| Cloud \| Unknown \|'
             $detail[-1].Result | Should -Match 'MFA capability could not be read'
         }
+        It 'lists applications that hold a role, marks third-party apps with secrets, and survives an unreadable application list' {
+            Mock Get-ResPrivilegedUser { @([pscustomobject]@{ Id = 'u1'; UserPrincipalName = 'ga@contoso.com'; UserType = 'Member'; AccountEnabled = $true; OnPremisesSyncEnabled = $false; Roles = @('Global Administrator'); ActiveRoles = @('Global Administrator'); EligibleRoles = @(); EligibleReadable = $true; UnreadableGroups = @() }) }
+            Mock Invoke-MtGraphRequest { @([pscustomobject]@{ id = 'u1'; isMfaCapable = $true }) }
+            Mock Get-ResPrivilegedServicePrincipal { @([pscustomobject]@{ Id = 's1'; DisplayName = 'Backup Tool'; Type = 'Application'; OwnerOrganizationId = 'other'; IsThirdParty = $true; AccountEnabled = $true; SecretCount = 2; CertificateCount = 0; Roles = @('Global Administrator'); ActiveRoles = @('Global Administrator'); EligibleRoles = @() }) }
+            Test-ResPrivilegedRoleInventory | Should -BeTrue
+            $detail[-1].Result | Should -Match '1 application\(s\) or managed identity\(ies\) also hold'
+            $detail[-1].Result | Should -Match 'Backup Tool \| Application \| Another organization \| 2 \| 0 \| Global Administrator \|  \| Third-party application; 2 client secret\(s\)'
+            $detail[-1].Result | Should -Match '\| Global Administrator \| 1 \| 1 \| 0 \| 1 \|'
+            Mock Get-ResPrivilegedServicePrincipal { throw 'Forbidden' }
+            Test-ResPrivilegedRoleInventory | Should -BeTrue
+            $detail[-1].Result | Should -Match 'could not be read \(it needs the Application.Read.All permission\)'
+        }
         It 'passes plainly when nobody holds a role' {
             Mock Get-ResPrivilegedUser { }
+            Mock Get-ResPrivilegedServicePrincipal { @() }
             Test-ResPrivilegedRoleInventory | Should -BeTrue
             $detail[-1].Investigate | Should -BeFalse
         }

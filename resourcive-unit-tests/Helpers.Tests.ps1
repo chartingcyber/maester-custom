@@ -156,6 +156,44 @@ Describe 'Licence and error helpers' {
     }
 }
 
+Describe 'Get-ResPrivilegedServicePrincipal' {
+    It 'returns applications with roles, owner, secrets and flags, and skips users and non-privileged roles' {
+        Mock Get-MgContext { [pscustomobject]@{ TenantId = 'mine' } }
+        Mock Invoke-MtGraphRequest {
+            switch -Wildcard ($RelativeUri) {
+                'roleManagement/directory/roleDefinitions' { @([pscustomobject]@{ id = 'r1'; displayName = 'Global Administrator'; isPrivileged = $true }, [pscustomobject]@{ id = 'r2'; displayName = 'Reader'; isPrivileged = $false }) }
+                'roleManagement/directory/roleAssignments' {
+                    @([pscustomobject]@{ roleDefinitionId = 'r1'; principal = [pscustomobject]@{ '@odata.type' = '#microsoft.graph.servicePrincipal'; id = 's1'; displayName = 'Backup Tool' } },
+                        [pscustomobject]@{ roleDefinitionId = 'r1'; principal = [pscustomobject]@{ '@odata.type' = '#microsoft.graph.user'; id = 'u1' } },
+                        [pscustomobject]@{ roleDefinitionId = 'r2'; principal = [pscustomobject]@{ '@odata.type' = '#microsoft.graph.servicePrincipal'; id = 's2'; displayName = 'Reader App' } })
+                }
+                'roleManagement/directory/roleEligibilityScheduleInstances' { throw 'RequestFromNonPremiumTenantOrB2CTenant' }
+                'servicePrincipals/s1' { [pscustomobject]@{ id = 's1'; displayName = 'Backup Tool'; appId = 'a1'; servicePrincipalType = 'Application'; appOwnerOrganizationId = 'other'; accountEnabled = $true; passwordCredentials = @([pscustomobject]@{ keyId = 'k' }); keyCredentials = @() } }
+            }
+        }
+        $apps = @(Get-ResPrivilegedServicePrincipal)
+        $apps.Count | Should -Be 1
+        $apps[0].DisplayName | Should -Be 'Backup Tool'
+        $apps[0].IsThirdParty | Should -BeTrue
+        $apps[0].SecretCount | Should -Be 1
+        $apps[0].Roles | Should -Be @('Global Administrator')
+        $apps[0].EligibleReadable | Should -BeFalse
+    }
+    It 'treats an application of this tenant or of Microsoft as first-party' {
+        Mock Get-MgContext { [pscustomobject]@{ TenantId = 'mine' } }
+        Mock Invoke-MtGraphRequest {
+            switch -Wildcard ($RelativeUri) {
+                'roleManagement/directory/roleDefinitions' { @([pscustomobject]@{ id = 'r1'; displayName = 'Global Administrator'; isPrivileged = $true }) }
+                'roleManagement/directory/roleAssignments' { @([pscustomobject]@{ roleDefinitionId = 'r1'; principal = [pscustomobject]@{ '@odata.type' = '#microsoft.graph.servicePrincipal'; id = 's1' } }) }
+                'servicePrincipals/s1' { [pscustomobject]@{ id = 's1'; displayName = 'Own App'; servicePrincipalType = 'ManagedIdentity'; appOwnerOrganizationId = 'mine'; accountEnabled = $true; passwordCredentials = @(); keyCredentials = @() } }
+            }
+        }
+        $apps = @(Get-ResPrivilegedServicePrincipal -ActiveOnly)
+        $apps[0].IsThirdParty | Should -BeFalse
+        $apps[0].Type | Should -Be 'ManagedIdentity'
+    }
+}
+
 Describe 'Get-ResPrivilegedUser' {
     It 'returns active and eligible users, expands groups and skips non-privileged roles' {
         Mock Invoke-MtGraphRequest {

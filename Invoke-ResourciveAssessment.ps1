@@ -9,6 +9,7 @@ Runs the whole Resourcive assessment in one command, in place of Connect-Maester
    so the administrator approves everything in a single consent prompt, then verifies the scopes were granted.
 3. Connects Exchange Online, Security & Compliance and Teams through Connect-Maester.
 4. Installs the pack (you review and approve it) and runs Invoke-Maester for the built-in tests and the pack.
+5. Builds the findings report (New-ResourciveReport.ps1) from the results, unless -NoReport is set.
 Nothing in the tenant is changed. Run it in a fresh pwsh window, before anything has connected to Exchange,
 Teams or Azure.
 
@@ -29,6 +30,12 @@ Two-letter ISO 3166-1 country codes where sign-ins are expected, for example GB,
 
 .PARAMETER OutputFolder
 Where results go. Default: ./test-results/<TenantId>_<yyyyMMdd-HHmmss>, stamped with the local time the script started, so every run (including repeat runs against the same tenant) gets its own folder.
+
+.PARAMETER NoReport
+Do not build the findings report (findings-report.html and findings-action-list.csv) after the run.
+
+.PARAMETER MaskNames
+Mask email addresses in the findings report, keeping the first three characters of each. Use it for a copy that leaves the team.
 
 .PARAMETER SkipLongRunning
 Leave out the long-running checks: Maester's own, and the pack's (found from the LongRunning flag in each check). Naming a pack would otherwise run its long-running checks.
@@ -62,6 +69,8 @@ param(
     [switch] $ConnectOnly,
     [string] $OutputFolder,
     [switch] $SkipLongRunning,
+    [switch] $NoReport,
+    [switch] $MaskNames,
     [switch] $Force,
     [switch] $AllowPartial,
     [ValidatePattern('^[A-Za-z]{2}$')] [string[]] $ExpectedCountries,
@@ -216,5 +225,23 @@ if ($SkipLongRunning) {
 }
 Write-Host "Running Maester. A full run can take 25 minutes or more; results go to $OutputFolder" -ForegroundColor Cyan
 Invoke-Maester @run
-Write-Host "Done. Open $OutputFolder/assessment.html" -ForegroundColor Green
+
+# 7. The findings report. A failure here must not lose the run: the results are already on disk.
+$reportPath = $null
+if (-not $NoReport) {
+    try {
+        Write-Host 'Building the findings report...' -ForegroundColor Cyan
+        $report = @{ ResultPath = $OutputFolder }
+        if ($MaskNames) { $report['MaskNames'] = $true }
+        & (Join-Path $PSScriptRoot 'New-ResourciveReport.ps1') @report
+        $reportPath = Join-Path $OutputFolder 'findings-report.html'
+    } catch {
+        Write-Warning "The findings report could not be built: $($_.Exception.Message). The results are in $OutputFolder; run ./New-ResourciveReport.ps1 -ResultPath $OutputFolder to try again."
+    }
+}
+if ($reportPath) {
+    Write-Host "Done. Open $reportPath (the findings report) or $OutputFolder/assessment.html (every check)." -ForegroundColor Green
+} else {
+    Write-Host "Done. Open $OutputFolder/assessment.html" -ForegroundColor Green
+}
 $result
