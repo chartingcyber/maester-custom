@@ -185,6 +185,17 @@ function Get-ReportRows($tests) {
         }
         $kind = if ($outcome -in 'Passed', 'Failed') { '' } else { Get-NotAssessedKind $t }
 
+        # Maester's PIM alert checks (MT.1029 to MT.1032 and the like) print Microsoft's own count for the whole alert
+        # ("13 user(s) ...") but list only the assignments left after filtering to Control Plane roles and removing
+        # emergency-access accounts. Say so, so a short list is not read as a missing one.
+        if ($detail -match '^\s*(\d+)\s+user\(s\)') {
+            $claimed = [int]$Matches[1]
+            $listed = ([regex]::Matches($detail, '(?m)^\s+-\s+')).Count
+            if ($listed -gt 0 -and $listed -lt $claimed) {
+                $detail = "**Note:** Microsoft's PIM alert counts $claimed assignments across all roles. This check counts only the $listed that hold Control Plane roles, leaving out emergency-access accounts, and only those are listed and cause the failure. The other $($claimed - $listed) are not named in the results; see the PIM alert in the Azure portal for the full list.`n`n$detail"
+            }
+        }
+
         # Split the description into "what it checks" and "how to fix it".
         $description = [string]$t.ResultDetail.TestDescription
         $fix = ''
