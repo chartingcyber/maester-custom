@@ -685,4 +685,16 @@ Describe 'Emergency accounts, privileged note and application names' {
         $text | Should -Match '42 users; included by: MFA all; excluded by: Exempt'
         $text | Should -Match 'includes Contoso HR'
     }
+    It 'lists the roles of a privileged persona and leaves the row out for other personas' {
+        Mock Invoke-MtGraphRequest { @() }
+        $app = [pscustomobject]@{ Key = 'exo'; Name = 'Office 365 Exchange Online'; Id = '00000002-0000-0ff1-ce00-000000000000'; Group = 'Other' }
+        $make = { param($persona) [pscustomobject]@{ Persona = $persona; App = $app; UserAction = $null; ClientAppType = 'browser'; DevicePlatform = 'windows'; Country = 'US'; IpAddress = $null; LocationKey = 'home'; SignInRiskLevel = 'None'; UserRiskLevel = 'None' } }
+        $outcome = Get-ResCaOutcome -Result @()
+        $exp = [pscustomobject]@{ Expect = 'Info'; Severity = 'Info'; Source = 'Default'; Note = '' }
+        $verdict = [pscustomobject]@{ Status = 'Investigate'; Reason = 'r'; Severity = $null }
+        $admin = [pscustomobject]@{ Key = 'priv-01'; Kind = 'Privileged'; Label = 'Privileged:GlobalAdministrator'; UserId = 'a'; UserPrincipalName = 'a@c.com'; Roles = @('Global Administrator', 'User Administrator'); ClassSize = 1; ClassPolicies = @(); IsEmergencyAccess = $false }
+        $member = [pscustomobject]@{ Key = 'member-c01'; Kind = 'Member'; Label = 'Member:class-1'; UserId = 'm'; UserPrincipalName = 'm@c.com'; ClassSize = 3; ClassPolicies = @(); IsEmergencyAccess = $false }
+        (Format-ResCaResult -Scenario (& $make $admin) -Outcome $outcome -Expectation $exp -Verdict $verdict -Cache @{}) | Should -Match '\| Privileged roles \| Global Administrator, User Administrator \|'
+        (Format-ResCaResult -Scenario (& $make $member) -Outcome $outcome -Expectation $exp -Verdict $verdict -Cache @{}) | Should -Not -Match 'Privileged roles'
+    }
 }

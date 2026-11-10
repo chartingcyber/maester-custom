@@ -81,6 +81,7 @@ function Format-ResCaResult {
     $null = $text.AppendLine('| --- | --- |')
     $null = $text.AppendLine("| Persona | $who |")
     $null = $text.AppendLine("| Persona class | $(Get-ClassText) |")
+    if ($persona.Kind -eq 'Privileged' -and @($persona.Roles).Count -gt 0) { $null = $text.AppendLine("| Privileged roles | $(@($persona.Roles) -join ', ') |") }
     $null = $text.AppendLine("| Signs in to | $target |")
     $null = $text.AppendLine("| Client app type | $($Scenario.ClientAppType) |")
     $null = $text.AppendLine("| Device platform | $($Scenario.DevicePlatform) |")
