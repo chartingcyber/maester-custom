@@ -25,15 +25,19 @@ The script asks for every Graph permission in one sign-in, then:
 
 1. Opens sign-in prompts for Exchange Online, Security & Compliance and Teams (up to three more).
 2. Runs `Install-MtPack`, which shows what the pack reaches and asks you to approve it. Read it and accept.
-3. Runs Maester's built-in tests and the pack, then builds the findings report. Open `./test-results/contoso.com_20261109-143015/findings-report.html` (the folder is named for the tenant and the time the run started). `assessment.html` beside it lists every check.
+3. Runs Maester's built-in tests and the pack, then builds the findings report. Open `./test-results/contoso.com/TestResults-2026-11-09-143015-findings.html` (the folder is the tenant's; the file name carries the time the run started). `TestResults-2026-11-09-143015.html` beside it lists every check.
 
-**Where results go:** `./test-results/<TenantId>_<yyyyMMdd-HHmmss>/`, relative to the folder you run the script from
-(the repository folder if you followed the steps above, for example
-`<repository>/test-results/contoso.com_20261109-143015/`). The name is the `-TenantId` you typed, then the local date
-and time the script started, so every run gets its own folder and repeat runs against the same tenant over time never
-overwrite each other. It holds `findings-report.html` (open this: ranked findings, roadmap, attack paths and more), `findings-action-list.csv`, `assessment.html` (every check), `assessment.csv`, `assessment.json`, `assessment.md` and
-`assessment-summary.md`. `test-results` is git-ignored, so client data is not committed. Use `-OutputFolder` to choose
-the folder yourself (a second run into the same folder would reuse the same file names).
+**Where results go:** `./test-results/<tenant>/`, relative to the folder you run the script from (the repository folder if
+you followed the steps above, for example `<repository>/test-results/contoso.com/`). There is **one folder per
+tenant**, named for the tenant's primary domain (or its ID) as the sign-in reached it, whatever you typed in
+`-TenantId`, so the same tenant always lands in the same folder. Every run adds its own files, named for the local
+date and time the script started, and never overwrites an earlier run:
+`TestResults-<yyyy-MM-dd-HHmmss>-findings.html` (open this: ranked findings, roadmap, attack paths and more),
+`...-action-list.csv`, `TestResults-<...>.html` (every check), `.csv`, `.json`, `.md`, `-summary.md` and
+`-affected-objects.json`/`.csv`. Because the runs share a folder, Maester finds the previous run itself and the
+report shows what changed and the trend. `test-results` is git-ignored, so client data is not committed. Runs made
+before this layout are in `./test-results/archive/`. Use `-OutputFolder` to choose the folder yourself, and keep one
+folder per tenant: Maester compares only the runs in the same folder.
 
 **Running against a different tenant:** use that tenant's domain or ID in `-TenantId`, in a fresh `pwsh` window.
 Consent is per tenant, so the permission prompt (or the administrator's approval) happens again, and
@@ -73,13 +77,13 @@ That one command runs the Resourcive M365 assessment against a client tenant, in
 
 ## The findings report
 
-`Invoke-Maester` writes `assessment.html`, which lists every check. For a client-ready view, build the findings report from the same results folder:
+`Invoke-Maester` writes `TestResults-<timestamp>.html`, which lists every check. For a client-ready view, build the findings report from the tenant's results folder (it uses the newest run there):
 
 ```powershell
-./New-ResourciveReport.ps1 -ResultPath ./test-results/contoso.com_20261109-143015
+./New-ResourciveReport.ps1 -ResultPath ./test-results/contoso.com
 ```
 
-It writes `findings-report.html` (one file, works offline) and `findings-action-list.csv` (ranked failures with blank owner, due date and status columns) into that folder. The report has an overview score, a remediation roadmap (Now, Next, Later), every failure ranked by risk and effort with the fix steps, attack paths, CIS Level 1 and 2, CISA SCuBA, NIST 800-53 and MITRE ATT&CK views, an inventory of privileged accounts, licence gaps, what changed since the previous run of the same tenant, and everything that could not be assessed and why. Skipped, errored and needs-review checks are never counted as passed.
+It writes `TestResults-<timestamp>-findings.html` (one file, works offline) and `TestResults-<timestamp>-action-list.csv` (ranked failures with blank owner, due date and status columns) beside that run's results. Point `-ResultPath` at a specific `TestResults-<timestamp>.json` to rebuild an older run, or `-ComparePath` at another result to compare against it. The report has an overview score, a remediation roadmap (Now, Next, Later), every failure ranked by risk and effort with the fix steps, attack paths, the Conditional Access scenarios compared with what was expected, an inventory of privileged accounts built from the facts on the affected objects, licence gaps, what changed since the previous run of the same tenant, and everything that could not be assessed and why. Skipped, errored and needs-review checks are never counted as passed.
 
 - Email addresses are shown in full. Add `-MaskNames` for a copy that leaves the team (it keeps the first three characters of each address).
 - Change the weights, roadmap cut-offs and attack-path mapping in `resourcive-report/risk-model.json`; no code change is needed.
@@ -104,7 +108,7 @@ copy of Maester (which has no pack support and a shorter scope list).
 | 2. Request | Assessor (Global Reader or better) | `./Invoke-ResourciveAssessment.ps1 -TenantId contoso.com`. All 35 scopes are requested at once. If approval is needed, submit the request Entra offers. |
 | 3. Approve | Client Global Administrator | Approve the request in Entra admin center > Enterprise apps > Activity > Admin consent requests (app: *Microsoft Graph Command Line Tools*), or run the same command and tick **Consent on behalf of your organization**. Record who approved and when. |
 | 4. Run | Assessor | Run the same command again. It connects Graph, Exchange Online, Security & Compliance and Teams, installs the pack (you review and approve it) and runs everything. |
-| 5. Read | Assessor | Open `./test-results/<tenant>_<timestamp>/findings-report.html`. Skipped is not passed; each skip names its reason. |
+| 5. Read | Assessor | Open `./test-results/<tenant>/TestResults-<timestamp>-findings.html`. Skipped is not passed; each skip names its reason. |
 
 When the account is an administrator or approval already exists, steps 2 to 4 collapse into one run.
 
@@ -120,7 +124,7 @@ then stops with instructions (including a consent link for the administrator, wh
 | `-AllowPartial` | When approval is blocked, connect with Maester's own scopes and run anyway. |
 | `-ConnectOnly` | Connect everything, then stop, leaving the session ready for your own `Invoke-Maester`. |
 | `-Service` | Services after Graph. Default `ExchangeOnline, SecurityCompliance, Teams`. |
-| `-OutputFolder` | Results folder. Default `./test-results/<TenantId>_<yyyyMMdd-HHmmss>`, one per run. |
+| `-OutputFolder` | Results folder. Default `./test-results/<tenant>`, one per tenant (named for its primary domain or ID), holding every run's `TestResults-<timestamp>` files. |
 | `-SkipLongRunning` | Leave out the long-running checks: Maester's own and the pack's (found from the `LongRunning` flag on each check). |
 | `-ExpectedCountries` | Two-letter country codes for the sign-in country check. Default `US, CA`. |
 | `-NoReport` | Skip building the findings report after the run. |

@@ -9,8 +9,7 @@ file that works offline, plus an action list as CSV. Findings are ranked by risk
 resourcive-report/risk-model.json, which you can edit.
 
 The report has: an overview with a score; a roadmap (now, next, later); every finding ranked; findings grouped by
-the attack they let through; framework views (CIS Level 1 and 2, CISA SCuBA, NIST 800-53, MITRE ATT&CK); scores by
-area; an inventory of privileged accounts; licence gaps; changes since the previous run of the same tenant; and
+the attack they let through; scores by area; an inventory of privileged accounts; licence gaps; changes since the previous run of the same tenant; and
 everything that could not be assessed and why.
 
 Nothing is sent anywhere. Email addresses are shown in full, because an administrator inventory is only useful when
@@ -32,7 +31,7 @@ How the numbers are made:
 A results folder or an assessment.json file.
 
 .PARAMETER OutputPath
-Where to write the HTML. Default: findings-report.html beside the result.
+Where to write the HTML. Default: <result name>-findings.html beside the result (findings-report.html for an older assessment.json).
 
 .PARAMETER Title
 Report title. Default: the tenant name from the result.
@@ -67,10 +66,20 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$jsonPath = if (Test-Path -LiteralPath $ResultPath -PathType Container) { Join-Path $ResultPath 'assessment.json' } else { $ResultPath }
-if (-not (Test-Path -LiteralPath $jsonPath)) { throw "No assessment.json found at '$ResultPath'." }
+# A folder holds one TestResults-<timestamp>.json per run (assessment.json in a folder from an older run); use the newest.
+function Get-ResultFile([string] $Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return $Path }
+    $newest = Get-ChildItem -LiteralPath $Path -Filter 'TestResults-*.json' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike '*-affected-objects.json' } | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+    if ($newest) { $newest.FullName } else { Join-Path $Path 'assessment.json' }
+}
+$jsonPath = Get-ResultFile $ResultPath
+if (-not (Test-Path -LiteralPath $jsonPath)) { throw "No TestResults-*.json or assessment.json found at '$ResultPath'." }
 $resultDir = Split-Path (Resolve-Path -LiteralPath $jsonPath).Path -Parent
-if (-not $OutputPath) { $OutputPath = Join-Path $resultDir 'findings-report.html' }
+# The findings report and action list take the result's own name, so a folder that holds many runs keeps one pair each.
+$resultStem = [System.IO.Path]::GetFileNameWithoutExtension($jsonPath)
+if ($resultStem -eq 'assessment') { $resultStem = $null }
+if (-not $OutputPath) { $OutputPath = Join-Path $resultDir $(if ($resultStem) { "$resultStem-findings.html" } else { 'findings-report.html' }) }
 
 $modelPath = Join-Path $PSScriptRoot 'resourcive-report/risk-model.json'
 $templatePath = Join-Path $PSScriptRoot 'resourcive-report/report-template.html'
@@ -280,19 +289,17 @@ $changes = $null
 $previousJson = $null
 if (-not $NoCompare) {
     if ($ComparePath) {
-        $previousJson = if (Test-Path -LiteralPath $ComparePath -PathType Container) { Join-Path $ComparePath 'assessment.json' } else { $ComparePath }
+        $previousJson = Get-ResultFile $ComparePath
     } else {
+        # The previous run is the newest earlier TestResults-*.json of the same tenant in the same folder, the way
+        # Maester finds it. A file of another tenant, or from later than this run, is skipped.
         $current = [datetime]$result.ExecutedAt
-        $parent = Split-Path $resultDir -Parent
-        $prefix = (Split-Path $resultDir -Leaf) -replace '_\d{8}-\d{6}$', ''
         $best = $null; $bestAt = [datetime]::MinValue
-        foreach ($dir in (Get-ChildItem -LiteralPath $parent -Directory -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $resultDir -and ($_.Name -eq $prefix -or $_.Name -like "${prefix}_*") })) {
-            $candidate = Join-Path $dir.FullName 'assessment.json'
-            if (-not (Test-Path -LiteralPath $candidate)) { continue }
+        foreach ($file in (Get-ChildItem -LiteralPath $resultDir -Filter 'TestResults-*.json' -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne (Resolve-Path -LiteralPath $jsonPath).Path -and $_.Name -notlike '*-affected-objects.json' })) {
             try {
-                $head = Get-Content -LiteralPath $candidate -Raw | ConvertFrom-Json -Depth 30
+                $head = Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json -Depth 30
                 $at = [datetime]$head.ExecutedAt
-                if ($head.TenantId -eq $result.TenantId -and $at -lt $current -and $at -gt $bestAt) { $best = $candidate; $bestAt = $at }
+                if ($head.TenantId -eq $result.TenantId -and $at -lt $current -and $at -gt $bestAt) { $best = $file.FullName; $bestAt = $at }
             } catch { }
         }
         $previousJson = $best
@@ -367,62 +374,6 @@ $paths = @(foreach ($path in $model.AttackPaths) {
         }
     })
 
-# ---- Frameworks ----
-function Get-RequirementState($set) {
-    if (@($set | Where-Object result -eq 'Failed').Count -gt 0) { return 'Failed' }
-    if (@($set | Where-Object result -eq 'Passed').Count -gt 0) { return 'Passed' }
-    return 'Not assessed'
-}
-
-$cisFile = Join-Path $PSScriptRoot 'tests/cis/frameworks/cis-m365.json'
-$cisCatalog = if (Test-Path -LiteralPath $cisFile) { Get-Content -LiteralPath $cisFile -Raw | ConvertFrom-Json } else { $null }
-$tmp = @(foreach ($group in ($rows | Where-Object { $_.cis } | Group-Object { $_.cis.req })) {
-        $first = $group.Group[0]
-        [pscustomobject]@{
-            req      = $group.Name
-            level    = $first.cis.level
-            profile  = $first.cis.profile
-            section  = ($group.Name -split '\.')[0]
-            state    = Get-RequirementState $group.Group
-            ids      = @($group.Group | ForEach-Object id)
-            title    = $first.title
-            severity = $first.severity
-        }
-    })
-$cisRows = @($tmp | Sort-Object { [version]($_.req -replace '[^\d.]', '' -replace '\.$', '') })
-$cisSummary = [ordered]@{ version = $(if ($cisCatalog) { [string]$cisCatalog.Version } else { '' }); sections = $model.CisSections; levels = [ordered]@{} }
-foreach ($level in 'L1', 'L2') {
-    $set = @($cisRows | Where-Object level -eq $level)
-    $cisSummary.levels[$level] = [ordered]@{
-        inBenchmark = $(if ($cisCatalog) { @($cisCatalog.Requirements | Where-Object Level -eq $level).Count } else { $null })
-        checked     = $set.Count
-        passed      = @($set | Where-Object state -eq 'Passed').Count
-        failed      = @($set | Where-Object state -eq 'Failed').Count
-        notAssessed = @($set | Where-Object state -eq 'Not assessed').Count
-    }
-}
-$cisSummary.rows = $cisRows
-
-$tmp = @(foreach ($group in ($rows | Where-Object { $_.cisa } | Group-Object { $_.cisa.req })) {
-        $first = $group.Group[0]
-        [pscustomobject]@{ req = $group.Name; area = (($group.Name -split '\.')[0..1] -join '.'); criticality = $first.cisa.criticality; state = Get-RequirementState $group.Group; title = $first.title; ids = @($group.Group | ForEach-Object id) }
-    })
-$cisaRows = @($tmp | Sort-Object req)
-
-$tmp = @(foreach ($family in ($rows | ForEach-Object { $r = $_; $r.nist | ForEach-Object { [pscustomobject]@{ family = (($_ -split '[-(]')[0]); row = $r } } } | Group-Object family)) {
-        $set = @($family.Group | ForEach-Object { $_.row } | Sort-Object id -Unique)
-        [pscustomobject]@{ family = $family.Name; passed = @($set | Where-Object result -eq 'Passed').Count; failed = @($set | Where-Object { $_.result -eq 'Failed' -and $_.severity -ne 'Info' }).Count; notAssessed = @($set | Where-Object { $_.result -notin 'Passed', 'Failed' }).Count }
-    })
-$nistRows = @($tmp | Sort-Object failed -Descending)
-
-$tmp = @(foreach ($technique in ($rows | ForEach-Object { $r = $_; $r.mitre | ForEach-Object { [pscustomobject]@{ technique = $_; row = $r } } } | Group-Object technique)) {
-        $set = @($technique.Group | ForEach-Object { $_.row } | Sort-Object id -Unique)
-        [pscustomobject]@{ technique = $technique.Name; passed = @($set | Where-Object result -eq 'Passed').Count; failed = @($set | Where-Object { $_.result -eq 'Failed' -and $_.severity -ne 'Info' }).Count; notAssessed = @($set | Where-Object { $_.result -notin 'Passed', 'Failed' }).Count }
-    })
-$mitreRows = @($tmp | Sort-Object failed -Descending | Select-Object -First 40)
-
-$frameworks = [ordered]@{ cis = $cisSummary; cisa = $cisaRows; nist = $nistRows; mitre = $mitreRows }
-
 # ---- Licences ----
 $planNames = @($result.TenantContext.Licenses.ServicePlanNames)
 $licenceKnown = ($result.TenantContext.Licenses.State -eq 'Known')
@@ -449,9 +400,79 @@ $secureScore = $null
 $ss = $tests | Where-Object { $_.Id -eq 'MP.RESOURCIVE.3007' } | Select-Object -First 1
 if ($ss -and ([string]$ss.ResultDetail.TestResult) -match 'Secure Score ([\d.]+) of ([\d.]+)') { $secureScore = [ordered]@{ current = [double]$Matches[1]; max = [double]$Matches[2] } }
 
-# ---- Admin inventory: check 3010 when the run has it, otherwise the privileged-user table of 3002 ----
+# ---- Admin inventory ----
+# Preferred source: the facts the pack attaches to each privileged user and application on the Affected objects page
+# (typed values with a shared key), which also carry the MFA, sign-in, Conditional Access exclusion and preset policy
+# findings. Older results have no facts; they fall back to the tables of check 3010, then check 3002.
+$factSource = 'Resourcive M365 Assessment'
+function Get-ObjectFact($Object, [string] $Key) {
+    @($Object.Facts | Where-Object { $_.Source -eq $factSource -and $_.Key -eq $Key })[-1]
+}
+function Get-ObjectFactText($Object, [string] $Name) {
+    $fact = @($Object.Facts | Where-Object { $_.Source -eq $factSource -and $_.Name -eq $Name })[-1]
+    if ($fact) { [string]$fact.Value } else { '' }
+}
+function ConvertTo-DaysText($Fact) {
+    if (-not $Fact) { return 'Unknown' }
+    if ($null -eq $Fact.Raw) { return 'Never' }
+    "$($Fact.Raw) days ago"
+}
 $admins = $null
+$factObjects = @($result.AffectedObjects | Where-Object { $_.Facts -and (Get-ObjectFact $_ 'user.privilegedRoles') -and $_.Type -eq 'User' })
+$factApps = @($result.AffectedObjects | Where-Object { $_.Facts -and (Get-ObjectFact $_ 'resourcive.privilegedRoles') -and $_.Type -eq 'ServicePrincipal' })
+if ($factObjects.Count -gt 0) {
+    $userRows = foreach ($object in ($factObjects | Sort-Object { -@((Get-ObjectFact $_ 'user.privilegedRoles').Raw).Count }, UserPrincipalName)) {
+        $mfa = Get-ObjectFact $object 'resourcive.mfaCapable'
+        $phish = Get-ObjectFact $object 'resourcive.phishingResistant'
+        $excluded = Get-ObjectFact $object 'resourcive.caExcludedCount'
+        $preset = Get-ObjectFact $object 'resourcive.presetPolicy'
+        $signIn = Get-ObjectFact $object 'signIn.daysSince'
+        $roleCount = @((Get-ObjectFact $object 'user.privilegedRoles').Raw).Count
+        # What to review, from the keyed facts: short words, not the names of every toned fact.
+        $marks = [System.Collections.Generic.List[string]]::new()
+        foreach ($mark in @((Get-ObjectFact $object 'resourcive.accountMarks').Raw)) { if ($mark) { $marks.Add([string]$mark) } }
+        if ($mfa -and $mfa.Raw -eq $false) { $marks.Add('No usable MFA') }
+        if ($phish -and $phish.Raw -eq $false) { $marks.Add('No phishing-resistant method') }
+        if ($signIn -and ($null -eq $signIn.Raw -or $signIn.Raw -gt 90)) { $marks.Add($(if ($null -eq $signIn.Raw) { 'Never signed in' } else { 'No sign-in for 90+ days' })) }
+        if ($excluded -and $excluded.Raw -gt 0) { $marks.Add('Excluded from Conditional Access') }
+        if ($preset -and $preset.Raw -ne 'Strict') { $marks.Add('Not in the Strict preset policy') }
+        if ($roleCount -ge 3) { $marks.Add("$roleCount roles") }
+        ,@(
+            (Hide-Email $(if ($object.UserPrincipalName) { $object.UserPrincipalName } else { $object.DisplayName })),
+            (Get-ObjectFactText $object 'Account'),
+            $(if ($mfa) { if ($mfa.Raw) { 'Capable' } else { 'Not capable' } } else { 'Unknown' }),
+            $(if (-not $phish) { 'Not assessed' } elseif ($phish.Raw -eq $true) { 'Yes' } elseif ($phish.Raw -eq $false) { 'No' } else { 'Not assessed' }),
+            (ConvertTo-DaysText (Get-ObjectFact $object 'signIn.daysSince')),
+            $(if (-not $excluded) { 'Not assessed' } elseif ($excluded.Raw -eq 0) { 'None' } else { "$($excluded.Raw) polic$(if ($excluded.Raw -eq 1) { 'y' } else { 'ies' })" }),
+            $(if ($preset) { [string]$preset.Raw } else { 'No mailbox or not assessed' }),
+            (Get-ObjectFactText $object 'Active roles'),
+            (Get-ObjectFactText $object 'Eligible roles'),
+            ($marks -join '; ')
+        )
+    }
+    $userRows = @($userRows)
+    $reviewCount = @($userRows | Where-Object { $_[9] }).Count
+    $tables = @([pscustomobject]@{
+            title   = 'Accounts'
+            headers = @('User', 'Account', 'MFA', 'Phishing-resistant method', 'Last sign-in', 'Conditional Access exclusions', 'Preset policy', 'Active roles', 'Eligible roles', 'Review')
+            rows    = $userRows
+        })
+    if ($factApps.Count -gt 0) {
+        $appRows = foreach ($object in ($factApps | Sort-Object DisplayName)) {
+            $marks = @($object.Facts | Where-Object { $_.Source -eq $factSource -and $_.Tone -in 'Risk', 'Warning' } | ForEach-Object { $_.Name } | Select-Object -Unique)
+            ,@($object.DisplayName, (Get-ObjectFactText $object 'Kind'), (Get-ObjectFactText $object 'Owner'), (Get-ObjectFactText $object 'Client secrets'), (Get-ObjectFactText $object 'Certificates'), (Get-ObjectFactText $object 'Privileged roles'), ($marks -join '; '))
+        }
+        $tables += [pscustomobject]@{ title = 'Applications and managed identities'; headers = @('Application', 'Kind', 'Owner', 'Secrets', 'Certificates', 'Roles', 'Review'); rows = @($appRows) }
+    }
+    $admins = [ordered]@{
+        source  = 'AffectedObjects'
+        full    = $true
+        summary = "$($userRows.Count) account(s) hold a privileged role; $reviewCount have something to review (a guest, disabled or synced account, no usable MFA, no phishing-resistant method, a stale or missing sign-in, or a Conditional Access exclusion).$(if ($factApps.Count -gt 0) { " $($factApps.Count) application(s) or managed identity(ies) also hold one." })"
+        tables  = $tables
+    }
+}
 foreach ($adminId in 'MP.RESOURCIVE.3010', 'MP.RESOURCIVE.3002') {
+    if ($admins) { break }
     $adminTest = $tests | Where-Object { $_.Id -eq $adminId -and $_.Result -in 'Investigate', 'Passed', 'Failed' } | Select-Object -First 1
     if (-not $adminTest) { continue }
     $text = [string]$adminTest.ResultDetail.TestResult
@@ -556,7 +577,6 @@ $data = [ordered]@{
     bands       = $bands
     domains     = $domains
     paths       = $paths
-    frameworks  = $frameworks
     licences    = $licences
     changes     = $changes
     admins      = $admins
@@ -575,7 +595,8 @@ $html = $template.Replace('/*__DATA__*/null', $json)
 Set-Content -LiteralPath $OutputPath -Value $html -Encoding utf8
 
 # Action list for the client's ticketing: ranked failures with blank owner, due date and status columns.
-$csvPath = Join-Path (Split-Path (Resolve-Path -LiteralPath $OutputPath).Path -Parent) 'findings-action-list.csv'
+$csvName = if ($resultStem) { "$resultStem-action-list.csv" } else { 'findings-action-list.csv' }
+$csvPath = Join-Path (Split-Path (Resolve-Path -LiteralPath $OutputPath).Path -Parent) $csvName
 $rank = 0
 $data.findings | Where-Object { $_.result -eq 'Failed' -and $_.severity -ne 'Info' } | ForEach-Object {
     $rank++

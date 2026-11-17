@@ -29,10 +29,10 @@ Services to connect after Graph. Default: ExchangeOnline, SecurityCompliance, Te
 Two-letter ISO 3166-1 country codes where sign-ins are expected, for example GB, IE. Default: US, CA. The sign-in country check (3005) fails on any successful sign-in from another country. Codes: https://www.iso.org/obp/ui/#search/code/
 
 .PARAMETER OutputFolder
-Where results go. Default: ./test-results/<TenantId>_<yyyyMMdd-HHmmss>, stamped with the local time the script started, so every run (including repeat runs against the same tenant) gets its own folder.
+Where results go. Default: ./test-results/<tenant>, one folder per tenant named for the tenant's primary domain (or ID) as the sign-in reached it, holding TestResults-<timestamp> files for every run, so Maester finds the previous run and shows what changed. Keep one folder per tenant.
 
 .PARAMETER NoReport
-Do not build the findings report (findings-report.html and findings-action-list.csv) after the run.
+Do not build the findings report (TestResults-<timestamp>-findings.html and -action-list.csv) after the run.
 
 .PARAMETER MaskNames
 Mask email addresses in the findings report, keeping the first three characters of each. Use it for a copy that leaves the team.
@@ -80,12 +80,6 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-
-# Every run gets its own results folder, named for the tenant and the time the script started, so runs against the
-# same tenant over time never overwrite each other.
-if (-not $OutputFolder) {
-    $OutputFolder = "./test-results/$($TenantId -replace '[^\w.\-]', '_')_$((Get-Date).ToString('yyyyMMdd-HHmmss'))"
-}
 
 # 1. Pack scopes from the manifest (the single source of truth).
 $manifestPath = Join-Path $PackPath 'maester-pack.json'
@@ -188,13 +182,31 @@ if ($result.MissingScopes.Count -gt 0 -and $status -eq 'Connected' -and -not $Fo
     return $result
 }
 
-# 6. Install the pack (interactive approval) and run.
+# 6. Where the results go: one folder per tenant, named for the tenant the Graph sign-in reached (its primary domain,
+#    or its ID), whatever was typed in -TenantId. Every run adds TestResults-<timestamp> files to that folder, so
+#    Maester finds the previous run by itself and can show what changed and the trend. A run never overwrites
+#    another. -OutputFolder chooses the folder yourself; keep one folder per tenant, because Maester compares
+#    only the runs in the same folder.
+if (-not $OutputFolder) {
+    $tenantFolder = $null
+    try {
+        $organization = @((Invoke-MgGraphRequest -Method GET -Uri 'v1.0/organization?$select=id,verifiedDomains' -ErrorAction Stop).value)[0]
+        $tenantFolder = [string](@($organization.verifiedDomains | Where-Object { $_.isDefault })[0]).name
+    } catch { }
+    if (-not $tenantFolder) { $tenantFolder = [string](Get-MgContext).TenantId }
+    if (-not $tenantFolder) { $tenantFolder = $TenantId }
+    $OutputFolder = Join-Path './test-results' ($tenantFolder.ToLowerInvariant() -replace '[^\w.\-]', '_')
+}
+# Maester names its own files TestResults-<timestamp>, and finds the previous run by that name, so use the same.
+$resultStem = 'TestResults-' + (Get-Date -Format 'yyyy-MM-dd-HHmmss')
+
+# 7. Install the pack (interactive approval) and run.
 Write-Host 'Installing the pack. Read what it reaches and approve it.' -ForegroundColor Cyan
 Install-MtPack $PackPath
 $run = @{
     Pack                  = 'RESOURCIVE'
     OutputFolder          = $OutputFolder
-    OutputFolderFileName  = 'assessment'
+    OutputFolderFileName  = $resultStem
     ExportCsv             = $true
 }
 if ($ExpectedCountries) {
@@ -226,22 +238,22 @@ if ($SkipLongRunning) {
 Write-Host "Running Maester. A full run can take 25 minutes or more; results go to $OutputFolder" -ForegroundColor Cyan
 Invoke-Maester @run
 
-# 7. The findings report. A failure here must not lose the run: the results are already on disk.
+# 8. The findings report. A failure here must not lose the run: the results are already on disk.
 $reportPath = $null
 if (-not $NoReport) {
     try {
         Write-Host 'Building the findings report...' -ForegroundColor Cyan
-        $report = @{ ResultPath = $OutputFolder }
+        $report = @{ ResultPath = (Join-Path $OutputFolder "$resultStem.json") }
         if ($MaskNames) { $report['MaskNames'] = $true }
         & (Join-Path $PSScriptRoot 'New-ResourciveReport.ps1') @report
-        $reportPath = Join-Path $OutputFolder 'findings-report.html'
+        $reportPath = Join-Path $OutputFolder "$resultStem-findings.html"
     } catch {
         Write-Warning "The findings report could not be built: $($_.Exception.Message). The results are in $OutputFolder; run ./New-ResourciveReport.ps1 -ResultPath $OutputFolder to try again."
     }
 }
 if ($reportPath) {
-    Write-Host "Done. Open $reportPath (the findings report) or $OutputFolder/assessment.html (every check)." -ForegroundColor Green
+    Write-Host "Done. Open $reportPath (the findings report) or $OutputFolder/$resultStem.html (every check)." -ForegroundColor Green
 } else {
-    Write-Host "Done. Open $OutputFolder/assessment.html" -ForegroundColor Green
+    Write-Host "Done. Open $OutputFolder/$resultStem.html" -ForegroundColor Green
 }
 $result

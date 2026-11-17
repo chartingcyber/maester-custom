@@ -132,8 +132,6 @@ footer { margin-top: 28px; color: var(--muted); font-size: 12px; }
     <section class="tabpanel" id="p-priorities" hidden></section>
     <section class="tabpanel" id="p-paths" hidden></section>
     <section class="tabpanel" id="p-ca" hidden></section>
-    <section class="tabpanel" id="p-frameworks" hidden></section>
-    <section class="tabpanel" id="p-areas" hidden></section>
     <section class="tabpanel" id="p-admins" hidden></section>
     <section class="tabpanel" id="p-licences" hidden></section>
     <section class="tabpanel" id="p-changes" hidden></section>
@@ -222,8 +220,6 @@ const DATA = /*__DATA__*/null;
     ["priorities", "Priorities", failed.length],
     ["paths", "Attack paths", ""],
     ["ca", "Conditional Access", (D.ca && D.ca.length) ? D.ca.filter(function (x) { return x.result === "Failed"; }).length : ""],
-    ["frameworks", "Frameworks", ""],
-    ["areas", "By area", ""],
     ["admins", "Admins", D.admins ? (D.admins.tables.filter(function (x) { return x.headers[0] === "User"; })[0] || { rows: [] }).rows.length : ""],
     ["licences", "Licences", ""],
     ["changes", "Changes", D.changes ? D.changes.regressed.length + D.changes.fixed.length : ""],
@@ -369,19 +365,6 @@ const DATA = /*__DATA__*/null;
     $("#count").textContent = rows.length + " check" + (rows.length === 1 ? "" : "s") + (state.result === "Failed" ? ", ranked by priority (risk divided by effort)" : "") + (rows.length > shown.length ? ". Showing the first " + shown.length + ". Narrow the filters to see the rest." : "");
     $("#list").innerHTML = shown.length ? shown.map(function (f) { return findingHtml(f); }).join("") : '<div class="empty">Nothing matches these filters.</div>';
   }
-
-  // ---- by area ----
-  function areas() {
-    var h = '<div class="panel"><h2>Areas</h2><table class="plain"><thead><tr><th>Area</th><th>Score</th><th class="num">Passed</th><th class="num">Failed</th><th class="num">Not assessed</th><th></th></tr></thead><tbody>';
-    D.domains.forEach(function (d) {
-      var b = band(d.score);
-      h += '<tr><td><b>' + esc(d.name) + '</b></td><td><span class="pill" style="color:' + b[1] + ";background:" + b[2] + '">' + (d.score == null ? "-" : d.score) + " " + b[0] + '</span></td><td class="num">' + d.passed + '</td><td class="num">' + d.failed + '</td><td class="num">' + d.notAssessed + '</td><td><button class="chip" type="button" data-area="' + esc(d.name) + '">View failed</button></td></tr>';
-    });
-    h += "</tbody></table></div>";
-    $("#p-areas").innerHTML = h;
-    Array.prototype.forEach.call(document.querySelectorAll("[data-area]"), function (b) { b.onclick = function () { resetFilters(); state.area = b.dataset.area; show("priorities"); syncControls(); renderList(); }; });
-  }
-
 
   // ---- admin inventory ----
   function adminsTab() {
@@ -533,48 +516,7 @@ const DATA = /*__DATA__*/null;
     drawUsers(); drawRows();
   }
 
-  // ---- frameworks ----
-  var STATE_CLASS = { Passed: "res-Passed", Failed: "res-Failed", "Not assessed": "res-Skipped" };
   function fwTable(headers, rows) { return '<div class="md"><table><thead><tr>' + headers.map(function (x) { return "<th>" + esc(x) + "</th>"; }).join("") + "</tr></thead><tbody>" + rows.join("") + "</tbody></table></div>"; }
-  var fwView = "cis", cisLevel = "L1";
-  function frameworks() {
-    var FW = D.frameworks;
-    var views = [["cis", "CIS Microsoft 365"], ["cisa", "CISA SCuBA"], ["nist", "NIST 800-53"], ["mitre", "MITRE ATT&CK"]];
-    var h = '<div class="filters">' + views.map(function (v) { return '<button class="chip" type="button" data-fw="' + v[0] + '" aria-pressed="' + (fwView === v[0]) + '">' + v[1] + "</button>"; }).join("") + "</div>";
-    if (fwView === "cis") {
-      var C = FW.cis, lv = C.levels[cisLevel], done = lv.passed + lv.failed, pct = done ? Math.round(100 * lv.passed / done) : null;
-      h += '<div class="panel" style="margin-bottom:16px"><div class="filters"><button class="chip" type="button" data-cis="L1" aria-pressed="' + (cisLevel === "L1") + '">Level 1</button><button class="chip" type="button" data-cis="L2" aria-pressed="' + (cisLevel === "L2") + '">Level 2</button></div>' +
-        '<h2>CIS Microsoft 365 Foundations Benchmark ' + esc(C.version) + " &middot; " + (cisLevel === "L1" ? "Level 1" : "Level 2") + '</h2><div class="kpis"><div class="kpi"><div class="v">' + (pct == null ? "-" : pct + "%") + '</div><div class="l">of assessed requirements pass</div></div><div class="kpi"><div class="v" style="color:var(--ok)">' + lv.passed + '</div><div class="l">Pass</div></div><div class="kpi"><div class="v" style="color:var(--crit)">' + lv.failed + '</div><div class="l">Fail</div></div><div class="kpi"><div class="v" style="color:var(--med)">' + lv.notAssessed + '</div><div class="l">Not assessed</div></div><div class="kpi"><div class="v">' + lv.checked + (lv.inBenchmark != null ? '<span class="small muted"> / ' + lv.inBenchmark + "</span>" : "") + '</div><div class="l">Requirements checked</div></div></div>' +
-        '<p class="small muted" style="margin:10px 0 0">Not assessed requirements are not counted as passed. A pass means the setting was found as the benchmark requires; it is a sample of the benchmark, not a certification.</p></div>';
-      var secs = Object.keys(C.sections);
-      secs.forEach(function (sec) {
-        var rows = C.rows.filter(function (r) { return r.level === cisLevel && r.section === sec; });
-        if (!rows.length) return;
-        var p = rows.filter(function (r) { return r.state === "Passed"; }).length, fl = rows.filter(function (r) { return r.state === "Failed"; }).length;
-        h += '<details class="panel" style="margin-bottom:10px"' + (fl ? " open" : "") + '><summary style="cursor:pointer;font-weight:600">' + sec + ". " + esc(C.sections[sec]) + ' <span class="muted">(' + p + " pass, " + fl + " fail, " + (rows.length - p - fl) + " not assessed)</span></summary><div style=\"margin-top:10px\">" +
-          fwTable(["Requirement", "Check", "Result", "Profile"], rows.map(function (r) { return "<tr><td>" + esc(r.req) + "</td><td>" + esc(r.title) + ' <span class="muted small">' + esc(r.ids.join(", ")) + '</span></td><td><span class="pill ' + STATE_CLASS[r.state] + '">' + esc(r.state) + "</span></td><td>" + esc(r.profile) + "</td></tr>"; })) + "</div></details>";
-      });
-    } else if (fwView === "cisa") {
-      var groups = {};
-      FW.cisa.forEach(function (r) { (groups[r.area] = groups[r.area] || []).push(r); });
-      h += '<div class="panel" style="margin-bottom:16px"><h2>CISA SCuBA baselines</h2><p class="small muted" style="margin:0">Microsoft 365 secure configuration baselines. SHALL is a requirement, SHOULD a recommendation.</p></div>';
-      Object.keys(groups).sort().forEach(function (g) {
-        var rows = groups[g], p = rows.filter(function (r) { return r.state === "Passed"; }).length, fl = rows.filter(function (r) { return r.state === "Failed"; }).length;
-        h += '<details class="panel" style="margin-bottom:10px"' + (fl ? " open" : "") + '><summary style="cursor:pointer;font-weight:600">' + esc(g) + ' <span class="muted">(' + p + " pass, " + fl + " fail, " + (rows.length - p - fl) + " not assessed)</span></summary><div style=\"margin-top:10px\">" +
-          fwTable(["Control", "Level", "Check", "Result"], rows.map(function (r) { return "<tr><td>" + esc(r.req) + "</td><td>" + esc(r.criticality) + "</td><td>" + esc(r.title) + '</td><td><span class="pill ' + STATE_CLASS[r.state] + '">' + esc(r.state) + "</span></td></tr>"; })) + "</div></details>";
-      });
-    } else if (fwView === "nist") {
-      var FAM = { AC: "Access control", AT: "Awareness and training", AU: "Audit and accountability", CA: "Assessment and authorization", CM: "Configuration management", CP: "Contingency planning", IA: "Identification and authentication", IR: "Incident response", MA: "Maintenance", MP: "Media protection", PE: "Physical protection", PL: "Planning", PM: "Program management", PS: "Personnel security", RA: "Risk assessment", SA: "System and services acquisition", SC: "System and communications protection", SI: "System and information integrity", SR: "Supply chain risk management" };
-      h += '<div class="panel"><h2>NIST SP 800-53 Rev. 5 control families</h2><p class="small muted" style="margin-top:0">How many checks that map to each family pass or fail. Many checks map to several families.</p>' +
-        fwTable(["Family", "Passed", "Failed", "Not assessed"], FW.nist.map(function (r) { return "<tr><td><b>" + esc(r.family) + "</b> " + esc(FAM[r.family] || "") + '</td><td class="num">' + r.passed + '</td><td class="num">' + r.failed + '</td><td class="num">' + r.notAssessed + "</td></tr>"; })) + "</div>";
-    } else {
-      h += '<div class="panel"><h2>MITRE ATT&amp;CK techniques</h2><p class="small muted" style="margin-top:0">The techniques with the most failed defences. Each technique is a way attackers get in or move; a failed check here is a defence that is missing or weak. Showing the top 40.</p>' +
-        fwTable(["Technique", "Passed", "Failed", "Not assessed"], FW.mitre.map(function (r) { return '<tr><td><a href="https://attack.mitre.org/techniques/' + esc(r.technique).replace(".", "/") + '/" target="_blank" rel="noopener noreferrer">' + esc(r.technique) + '</a></td><td class="num">' + r.passed + '</td><td class="num">' + r.failed + '</td><td class="num">' + r.notAssessed + "</td></tr>"; })) + "</div>";
-    }
-    $("#p-frameworks").innerHTML = h;
-    Array.prototype.forEach.call(document.querySelectorAll("[data-fw]"), function (b) { b.onclick = function () { fwView = b.dataset.fw; frameworks(); }; });
-    Array.prototype.forEach.call(document.querySelectorAll("[data-cis]"), function (b) { b.onclick = function () { cisLevel = b.dataset.cis; frameworks(); }; });
-  }
 
   // ---- licences ----
   function licences() {
@@ -643,7 +585,7 @@ const DATA = /*__DATA__*/null;
     $("#p-method").innerHTML = h;
   }
 
-  overview(); roadmap(); priorities(); paths(); caTab(); frameworks(); areas(); adminsTab(); licences(); changes(); notAss(); method();
+  overview(); roadmap(); priorities(); paths(); caTab(); adminsTab(); licences(); changes(); notAss(); method();
   var start = (location.hash || "").slice(1);
   show(TABS.some(function (t) { return t[0] === start; }) ? start : "overview");
 })();
