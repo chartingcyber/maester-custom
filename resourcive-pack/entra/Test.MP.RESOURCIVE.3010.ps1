@@ -82,6 +82,8 @@ function Test-ResPrivilegedRoleInventory {
             Active   = (@($user.ActiveRoles) -join ', ')
             Eligible = (@($user.EligibleRoles) -join ', ')
             Review   = ($marks -join '; ')
+            Account  = $user
+            Registration = $registration
         }
     }
     $rows = @($rows)
@@ -133,6 +135,22 @@ function Test-ResPrivilegedRoleInventory {
         (($appRows | ForEach-Object { "| $($_.Application) | $($_.Type) | $($_.Owner) | $($_.Secrets) | $($_.Certificates) | $($_.Active) | $($_.Eligible) | $($_.Review) |" }) -join "`n")
     } else { '' }
 
-    Add-MtTestResultDetail -Result "$summary$note`n`n**Holders by role**`n`n$roleTable`n`n**Accounts**`n`n$userTable$more$appTable" -Investigate
+    # Name every listed account and application on the Affected objects page, with what is known about each.
+    # One Add-MtTestResultDetail call carries them all, so each object says what it is in @odata.type.
+    $listed = @($rows | Select-Object -First $MaximumRows)
+    $activity = @{}
+    try { $activity = Get-ResUserActivity -UserId @($listed | ForEach-Object { $_.Account.Id }) } catch { $activity = @{} }
+    foreach ($row in $listed) {
+        Add-ResPrivilegedUserFact -User $row.Account -Registration $row.Registration -Activity $activity[[string]$row.Account.Id] -Fact @(
+            @{ Name = 'Review marks'; Value = $(if ($row.Review) { $row.Review } else { 'None' }); Tone = $(if ($row.Review) { 'Warning' } else { 'Good' }) }
+        )
+    }
+    $namedApps = @($apps | Select-Object -First $MaximumRows)
+    foreach ($app in $namedApps) { Add-ResPrivilegedAppFact -App $app }
+    $objects = @(
+        @($listed | ForEach-Object { New-ResGraphObject -Type User -Id ([string]$_.Account.Id) -DisplayName ([string]$_.Account.DisplayName) -UserPrincipalName ([string]$_.Account.UserPrincipalName) }) +
+        @($namedApps | Where-Object { $_.Id } | ForEach-Object { New-ResGraphObject -Type ServicePrincipal -Id ([string]$_.Id) -DisplayName ([string]$_.DisplayName) })
+    )
+    Add-MtTestResultDetail -Result "$summary$note`n`n**Holders by role**`n`n$roleTable`n`n**Accounts**`n`n$userTable$more$appTable" -GraphObjects $objects -Investigate
     return $true
 }

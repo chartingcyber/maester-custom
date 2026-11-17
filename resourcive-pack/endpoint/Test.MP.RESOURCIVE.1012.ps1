@@ -67,6 +67,16 @@ function Test-ResUnmanagedJoinedDevices {
         return $true
     }
 
+    # Name the devices on the Affected objects page, with what is known about each. A device is an Entra device object.
+    $namedDevices = @($candidates | Where-Object { $_.id } | Sort-Object { $_.approximateLastSignInDateTime } -Descending | Select-Object -First 50)
+    foreach ($device in $namedDevices) {
+        $isHybrid = $device.trustType -eq 'ServerAd'
+        Add-ResDeviceFact -Id ([string]$device.id) -OperatingSystem $device.operatingSystem -JoinType $device.trustType -Managed $false -Compliant $(if ($null -ne $device.isCompliant) { [bool]$device.isCompliant } else { $null }) -LastSeen $device.approximateLastSignInDateTime -Fact @(
+            @{ Name = 'Intune management'; Value = $(if ($isHybrid) { 'Not managed by Intune (hybrid joined: confirm Configuration Manager or Group Policy)' } else { 'Not managed by Intune' }); Tone = $(if ($isHybrid) { 'Warning' } else { 'Risk' }); Key = 'resourcive.intuneManaged'; Raw = $false }
+        )
+    }
+    $deviceObjects = @($namedDevices | ForEach-Object { New-ResGraphObject -Type Device -Id ([string]$_.id) -DisplayName ([string]$_.displayName) })
+
     function Get-DeviceTable {
         param($Device)
         $text = "| Device | Operating system | Join type | Last sign-in |`n| --- | --- | --- | --- |`n" +
@@ -78,9 +88,9 @@ function Test-ResUnmanagedJoinedDevices {
     $hybridText = if ($hybrid.Count -gt 0) { "`n`n**$($hybrid.Count) hybrid joined device(s)** are not managed by Intune. They may be managed by Configuration Manager or Group Policy, which Entra cannot see, so confirm that each is.`n`n$(Get-DeviceTable $hybrid)" } else { '' }
 
     if ($unmanaged.Count -eq 0) {
-        Add-MtTestResultDetail -Result "Only hybrid joined devices are not managed by Intune. Read $($devices.Count) devices as of $asOf UTC.$hybridText" -Investigate
+        Add-MtTestResultDetail -Result "Only hybrid joined devices are not managed by Intune. Read $($devices.Count) devices as of $asOf UTC.$hybridText" -GraphObjects $deviceObjects -Investigate
         return $false
     }
-    Add-MtTestResultDetail -Result "$($unmanaged.Count) cloud joined or registered device(s) signed in during the last $RecentDays days and are not managed by Intune. Read $($devices.Count) devices as of $asOf UTC.`n`n$(Get-DeviceTable $unmanaged)$hybridText"
+    Add-MtTestResultDetail -Result "$($unmanaged.Count) cloud joined or registered device(s) signed in during the last $RecentDays days and are not managed by Intune. Read $($devices.Count) devices as of $asOf UTC.`n`n$(Get-DeviceTable $unmanaged)$hybridText" -GraphObjects $deviceObjects
     return $false
 }

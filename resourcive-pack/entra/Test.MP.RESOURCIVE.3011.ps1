@@ -58,12 +58,21 @@ function Test-ResPrivilegedMfaCapable {
             Status  = $status
             Methods = if ($registration) { (@($registration.methodsRegistered | Where-Object { $_ }) -join ', ') } else { '' }
             Capable = if ($registration) { [bool]$registration.isMfaCapable } else { $null }
+            Account = $user
+            Registration = $registration
         }
     }
     $rows = @($rows)
 
     $failing = @($rows | Where-Object { $_.Capable -eq $false })
     $unknown = @($rows | Where-Object { $null -eq $_.Capable })
+    # Add what is known about every assessed user, so a user who passes shows it too (see check 3002).
+    foreach ($row in $rows) {
+        Add-ResPrivilegedUserFact -User $row.Account -Registration $row.Registration -Fact @(
+            @{ Name = 'Multifactor authentication'; Value = $row.Status; Tone = $(if ($row.Capable) { 'Good' } elseif ($null -eq $row.Capable) { 'Info' } else { 'Risk' }) }
+            @{ Name = 'Methods registered'; Value = $(if ($row.Methods) { $row.Methods } else { 'None' }) }
+        )
+    }
     $note = Get-ResPrivilegedUserNote -User $privileged
     $summary = "$($rows.Count - $failing.Count - $unknown.Count) of $($rows.Count) enabled privileged users can complete multifactor authentication, as of $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC.$note"
 
@@ -72,10 +81,12 @@ function Test-ResPrivilegedMfaCapable {
         return $true
     }
     $table = "`n`n| User | Roles | Status | Methods |`n| --- | --- | --- | --- |`n" + ((@($failing) + @($unknown) | ForEach-Object { "| $($_.User) | $($_.Roles) | $($_.Status) | $($_.Methods) |" }) -join "`n")
+    $named = @(@($failing) + @($unknown))
+    $graphObjects = @($named | ForEach-Object { $_.Account })
     if ($failing.Count -eq 0) {
-        Add-MtTestResultDetail -Result "$summary$table" -Investigate
+        Add-MtTestResultDetail -Result "$summary$table" -GraphObjects $graphObjects -GraphObjectType Users -Investigate
         return $false
     }
-    Add-MtTestResultDetail -Result "$summary$table"
+    Add-MtTestResultDetail -Result "$summary$table" -GraphObjects $graphObjects -GraphObjectType Users
     return $false
 }

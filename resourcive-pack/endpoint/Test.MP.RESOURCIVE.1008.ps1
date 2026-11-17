@@ -89,6 +89,29 @@ Not counted (no sync for $StaleDays days):`
 ")
     }
 
+    # Name the devices that do not report encryption on the Affected objects page. Intune knows a device by its own ID
+    # and the report by the Entra device object, so find each one by its Entra device ID; a device that cannot be
+    # found is left out rather than named wrongly.
+    $deviceObjects = @()
+    if ($notEncrypted.Count -gt 0) {
+        try {
+            $entraDevices = @{}
+            foreach ($entra in @(Invoke-MtGraphRequest -RelativeUri 'devices' -ApiVersion v1.0 -Select id, deviceId -ErrorAction Stop)) { if ($entra.deviceId) { $entraDevices[([string]$entra.deviceId).ToLowerInvariant()] = [string]$entra.id } }
+            $named = @()
+            foreach ($device in @($notEncrypted | Select-Object -First 50)) {
+                $entraId = $entraDevices[([string]$device.azureADDeviceId).ToLowerInvariant()]
+                if (-not $entraId) { continue }
+                Add-ResDeviceFact -Id $entraId -OperatingSystem 'Windows' -Managed $true -Compliant ($device.complianceState -eq 'compliant') -LastSeen $device.lastSyncDateTime -Fact @(
+                    @{ Name = 'BitLocker'; Value = 'Not reported as encrypted'; Tone = 'Risk'; Key = 'resourcive.encrypted'; Raw = $false }
+                )
+                $named += New-ResGraphObject -Type Device -Id $entraId -DisplayName ([string]$device.deviceName)
+            }
+            $deviceObjects = @($named)
+        } catch {
+            Write-Verbose "The devices could not be matched to Entra device objects: $($_.Exception.Message)"
+        }
+    }
+
     $devicesOk = -not $noDevices -and $percent -ge $MinimumEncryptedPercent
     if ($policyStatus.Status -eq 'Enforced' -and $devicesOk) {
         Add-MtTestResultDetail -Result "Well done. BitLocker is required for all devices and the devices report that they are encrypted.`
@@ -110,9 +133,9 @@ $text"
         return $true
     }
     if ($policyStatus.Status -eq 'Partial scope' -and ($devicesOk -or $noDevices)) {
-        Add-MtTestResultDetail -Result $text -Investigate
+        Add-MtTestResultDetail -Result $text -GraphObjects $deviceObjects -Investigate
         return $false
     }
-    Add-MtTestResultDetail -Result $text
+    Add-MtTestResultDetail -Result $text -GraphObjects $deviceObjects
     return $false
 }

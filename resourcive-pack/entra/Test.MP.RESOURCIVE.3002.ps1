@@ -49,7 +49,7 @@ function Test-ResPrivilegedPhishingResistantMethod {
     $rows = foreach ($user in $privileged) {
         $registration = $byId[[string]$user.Id]
         if (-not $registration) {
-            [pscustomobject]@{ User = $user.UserPrincipalName; Roles = ($user.Roles -join ', '); Status = 'Not assessed (no registration record)'; Methods = ''; Ok = $null }
+            [pscustomobject]@{ User = $user.UserPrincipalName; Roles = ($user.Roles -join ', '); Status = 'Not assessed (no registration record)'; Methods = ''; Ok = $null; Account = $user; Registration = $null }
             continue
         }
         $methods = @($registration.methodsRegistered | Where-Object { $_ })
@@ -61,12 +61,22 @@ function Test-ResPrivilegedPhishingResistantMethod {
             Status  = if ($resistant) { 'Phishing-resistant method registered' } elseif ($weakOnly) { 'Only phone, email or one-time passcode methods' } elseif ($methods.Count -gt 0) { 'Push or app-based MFA only' } else { 'No method registered' }
             Methods = ($methods -join ', ')
             Ok      = $resistant
+            Account = $user
+            Registration = $registration
         }
     }
     $rows = @($rows | Where-Object { $null -ne $_ })
 
     $failing = @($rows | Where-Object { $_.Ok -eq $false })
     $unknown = @($rows | Where-Object { $null -eq $_.Ok })
+    # Add what is known about every assessed user. The facts show on the Affected objects page for the users that a
+    # check names, and the inventory (check 3010) names every privileged user, so a user who passes still shows it.
+    foreach ($row in $rows) {
+        Add-ResPrivilegedUserFact -User $row.Account -Registration $row.Registration -Fact @(
+            @{ Name = 'Phishing-resistant method'; Value = $row.Status; Tone = $(if ($row.Ok) { 'Good' } elseif ($null -eq $row.Ok) { 'Info' } else { 'Risk' }); Key = 'resourcive.phishingResistant'; Raw = $row.Ok }
+            @{ Name = 'Methods registered'; Value = $(if ($row.Methods) { $row.Methods } else { 'None' }) }
+        )
+    }
     $eligibleNote = Get-ResPrivilegedUserNote -User $privileged
     $summary = "$($rows.Count - $failing.Count - $unknown.Count) of $($rows.Count) privileged users have a phishing-resistant method registered, as of $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC.$eligibleNote"
 
@@ -75,10 +85,12 @@ function Test-ResPrivilegedPhishingResistantMethod {
         return $true
     }
     $table = "`n`n| User | Roles | Status | Methods |`n| --- | --- | --- | --- |`n" + ((@($failing) + @($unknown) | ForEach-Object { "| $($_.User) | $($_.Roles) | $($_.Status) | $($_.Methods) |" }) -join "`n")
+    $named = @(@($failing) + @($unknown))
+    $graphObjects = @($named | ForEach-Object { $_.Account })
     if ($failing.Count -eq 0) {
-        Add-MtTestResultDetail -Result "$summary$table" -Investigate
+        Add-MtTestResultDetail -Result "$summary$table" -GraphObjects $graphObjects -GraphObjectType Users -Investigate
         return $false
     }
-    Add-MtTestResultDetail -Result "$summary$table"
+    Add-MtTestResultDetail -Result "$summary$table" -GraphObjects $graphObjects -GraphObjectType Users
     return $false
 }

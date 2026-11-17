@@ -10,7 +10,8 @@ function Get-ResCaInstance {
     round-robin by persona (every persona gets a legacy probe, a modern baseline, a platform and a location
     variation before any gets more), and gives each an expectation and a severity. The What If calls happen in the test, not here.
 
-    An instance source takes no parameters, so its knobs are Maester settings (GlobalSettings in the run config):
+    An instance source takes no parameters, so its knobs are Maester settings (GlobalSettings in the run config),
+    declared under Settings in maester-pack.json, where Maester checks their types before the run:
     Resourcive.CA.MaxScenarios (300), Resourcive.CA.MaxPrivilegedUsers (25), Resourcive.CA.IncludeReportOnly
     (true), Resourcive.CA.MaxUsers (5000), Resourcive.CA.MaxExplicitApps (8), Resourcive.CA.MaxLocations (4),
     Resourcive.CA.PersonaFile (empty), Resourcive.CA.RefreshPersonas (false), Resourcive.CA.DesiredStateFile
@@ -155,17 +156,28 @@ function Test-ResCaScenario {
     $verdict = Test-ResCaExpectation -Outcome $outcome -Expectation $data.Expectation -DeviceRequiredSatisfiesMfa:$data.DeviceRequiredSatisfiesMfa -ClientAppType $scenario.ClientAppType
     $text = Format-ResCaResult -Scenario $scenario -Outcome $outcome -Expectation $data.Expectation -Verdict $verdict -Note @($data.Note) -AsOf $data.AsOf -Redact:$data.Redact -Cache $data.Cache
 
+    # A scenario that fails or needs review names its persona's user and the policies that exclude the persona on the
+    # Affected objects page, so the policy behind most gaps is easy to find. A passing scenario names nothing.
+    $named = @()
+    if ($verdict.Status -ne 'Pass') {
+        try {
+            $named = @(Add-ResCaScenarioFact -Scenario $scenario -Verdict $verdict -Policy @($data.Policies) -Cache $data.Cache -Redact:$data.Redact)
+        } catch {
+            Write-Verbose "The affected objects of this scenario could not be recorded: $($_.Exception.Message)"
+        }
+    }
+
     switch ($verdict.Status) {
         'Pass' {
             Add-MtTestResultDetail -Result $text
             return $true
         }
         'Fail' {
-            Add-MtTestResultDetail -Result $text
+            Add-MtTestResultDetail -Result $text -GraphObjects @($named)
             return $false
         }
         default {
-            Add-MtTestResultDetail -Result $text -Investigate
+            Add-MtTestResultDetail -Result $text -GraphObjects @($named) -Investigate
             return $true
         }
     }

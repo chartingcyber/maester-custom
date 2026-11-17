@@ -198,6 +198,24 @@ Describe 'Endpoint checks' {
             $detail[-1].Result | Should -Match 'none to assess'
             $detail[-1].Result | Should -Match 'ghost'
         }
+        It '1008 adds a fact to the Entra device object of a device that does not report encryption' {
+            $recent = (Get-Date).ToUniversalTime().AddDays(-1).ToString('o')
+            Mock Get-ResIntuneConfigurationPolicy { New-Policy -Settings @((S $bl "${bl}_1")) }
+            Mock Get-ResWindowsManagedDevice {
+                @([pscustomobject]@{ deviceName = 'LAPTOP1'; isEncrypted = $false; azureADDeviceId = 'AAAAAAAA-0000-0000-0000-000000000001'; complianceState = 'compliant'; lastSyncDateTime = $recent },
+                    [pscustomobject]@{ deviceName = 'NOMATCH'; isEncrypted = $false; azureADDeviceId = 'bbbbbbbb-0000-0000-0000-000000000002'; complianceState = 'noncompliant'; lastSyncDateTime = $recent })
+            }
+            Mock Invoke-MtGraphRequest { @([pscustomobject]@{ id = 'entra-object-1'; deviceId = 'aaaaaaaa-0000-0000-0000-000000000001' }) }
+            $script:deviceFacts = @()
+            Mock Add-MtAffectedObjectFact { $script:deviceFacts += [pscustomobject]@{ Type = $Type; Id = $Id; Fact = @($Fact) } }
+            Test-ResBitLockerEnforcedAndEncrypted | Should -BeFalse
+            @($deviceFacts).Count | Should -Be 1
+            $deviceFacts[0].Type | Should -Be 'Device'
+            $deviceFacts[0].Id | Should -Be 'entra-object-1'
+            ($deviceFacts[0].Fact | Where-Object Key -EQ 'device.managed').Raw | Should -BeTrue
+            ($deviceFacts[0].Fact | Where-Object Key -EQ 'device.compliant').Raw | Should -BeTrue
+            ($deviceFacts[0].Fact | Where-Object Key -EQ 'resourcive.encrypted').Raw | Should -BeFalse
+        }
         It '1008 says so, without Well done, when the policy is enforced and no Windows device is enrolled' {
             Mock Get-ResIntuneConfigurationPolicy { New-Policy -Settings @((S $bl "${bl}_1")) }
             Mock Get-ResWindowsManagedDevice { @() }

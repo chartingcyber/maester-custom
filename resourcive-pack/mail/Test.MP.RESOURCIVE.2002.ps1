@@ -61,6 +61,7 @@ function Test-ResPrivilegedUsersStrictPreset {
             User    = $user.UserPrincipalName
             Roles   = ($user.Roles -join ', ')
             Profile = if ($strict) { 'Strict' } elseif ($standard) { 'Standard' } else { 'Neither' }
+            Account = $user
         }
     }
     $rows = @($rows | Where-Object { $null -ne $_ })
@@ -69,6 +70,12 @@ function Test-ResPrivilegedUsersStrictPreset {
         Add-MtTestResultDetail -SkippedBecause NotApplicable
     }
 
+    # Add what is known about every privileged user with a mailbox, so a user who passes shows it too.
+    foreach ($row in $rows) {
+        Add-ResPrivilegedUserFact -User $row.Account -Registration $null -Fact @(
+            @{ Name = 'Preset security policy'; Value = $(if ($row.Profile -eq 'Neither') { 'Neither Strict nor Standard' } else { $row.Profile }); Tone = $(if ($row.Profile -eq 'Strict') { 'Good' } elseif ($row.Profile -eq 'Neither') { 'Risk' } else { 'Warning' }); Key = 'resourcive.presetPolicy'; Raw = $row.Profile }
+        )
+    }
     $notStrict = @($rows | Where-Object { $_.Profile -ne 'Strict' })
     $eligibleNote = Get-ResPrivilegedUserNote -User $privileged
     $summary = "$($rows.Count - $notStrict.Count) of $($rows.Count) privileged users with a mailbox are covered by the Strict preset security policy, as of $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC.$eligibleNote"
@@ -78,6 +85,6 @@ function Test-ResPrivilegedUsersStrictPreset {
         return $true
     }
     $table = "`n`n| User | Roles | Covered by |`n| --- | --- | --- |`n" + ((@($notStrict) | ForEach-Object { "| $($_.User) | $($_.Roles) | $($_.Profile) |" }) -join "`n")
-    Add-MtTestResultDetail -Result "$summary$table"
+    Add-MtTestResultDetail -Result "$summary$table" -GraphObjects @($notStrict | ForEach-Object { $_.Account }) -GraphObjectType Users
     return $false
 }

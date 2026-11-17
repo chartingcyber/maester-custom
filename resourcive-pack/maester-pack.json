@@ -46,5 +46,57 @@
   },
   "Helpers": [
     "helpers"
-  ]
+  ],
+  "Settings": {
+    "Resourcive.CA.MaxScenarios": {
+      "Type": "int",
+      "Default": 300,
+      "Description": "Most Conditional Access What If scenarios to run. The cap is applied round-robin by persona, privileged personas first. Raise it to probe more."
+    },
+    "Resourcive.CA.MaxPrivilegedUsers": {
+      "Type": "int",
+      "Default": 25,
+      "Description": "Most privileged users tested individually as their own persona."
+    },
+    "Resourcive.CA.IncludeReportOnly": {
+      "Type": "bool",
+      "Default": true,
+      "Description": "Whether report-only policies are read when working out personas and sign-in conditions. They never count towards a pass."
+    },
+    "Resourcive.CA.MaxUsers": {
+      "Type": "int",
+      "Default": 5000,
+      "Description": "Most users read when grouping users into personas."
+    },
+    "Resourcive.CA.MaxExplicitApps": {
+      "Type": "int",
+      "Default": 8,
+      "Description": "Most individually named applications that get scenarios of their own."
+    },
+    "Resourcive.CA.MaxLocations": {
+      "Type": "int",
+      "Default": 4,
+      "Description": "Most countries or named locations used as sign-in locations in scenarios."
+    },
+    "Resourcive.CA.PersonaFile": {
+      "Type": "string",
+      "Default": "",
+      "Description": "Path of a JSON file that stores the personas, so reruns test the same users. Empty means personas are not saved."
+    },
+    "Resourcive.CA.RefreshPersonas": {
+      "Type": "bool",
+      "Default": false,
+      "Description": "Rebuild the personas from the tenant instead of reading PersonaFile."
+    },
+    "Resourcive.CA.DesiredStateFile": {
+      "Type": "string",
+      "Default": "",
+      "Description": "Path of a JSON file describing the Conditional Access outcome each persona is expected to get. Empty uses the default expectations."
+    },
+    "Resourcive.CA.RedactUserNames": {
+      "Type": "bool",
+      "Default": false,
+      "Description": "Show the persona label instead of the user principal name in scenario titles and results."
+    }
+  }
 }

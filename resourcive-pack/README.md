@@ -87,7 +87,7 @@ sign-in fails with a broker error. Their tests are skipped.
 
 ```powershell
 Install-MtPack ./resourcive-pack
-Invoke-Maester -Pack RESOURCIVE -IncludeLongRunning -OutputFolder ./test-results/contoso -OutputFolderFileName assessment -ExportCsv
+Invoke-Maester -Pack RESOURCIVE -IncludeLongRunning -OutputFolder ./test-results/contoso -ExportCsv
 ```
 
 `Install-MtPack` shows what the pack contains and asks you to approve it; read it and accept. It records the pack and
@@ -104,9 +104,9 @@ Everything is in `./test-results/contoso`:
 
 | File | What it is |
 | --- | --- |
-| `assessment.html` | The report to open in a browser. |
-| `assessment.csv` | One row per test, for sorting in a spreadsheet. |
-| `assessment.json` and `assessment.md` | The same data for tools and for reading as text. |
+| `TestResults-<timestamp>.html` | The report to open in a browser. |
+| `TestResults-<timestamp>.csv` | One row per test, for sorting in a spreadsheet. |
+| `TestResults-<timestamp>.json` and `.md` | The same data for tools and for reading as text. |
 
 Results are **Passed**, **Failed**, **Investigate** (a person must decide), **Skipped** (not assessed, and the reason is
 given, for example "Not licensed" or "Not authorized") and **Error**. A skip is not a pass. The report contains tenant
@@ -210,12 +210,31 @@ Roles marked (unverified) were not confirmed against a tenant and need testing.
 | 3009 | Successful legacy-protocol sign-ins, interactive and non-interactive. Defender advanced hunting; Investigate with manual steps without Entra ID P2 | High | Entra P2 (for the automatic check) | ThreatHunting.Read.All and a role with advanced hunting access, such as Security Reader |
 | 3010 | Privileged role inventory: every account that holds a privileged role, the roles, and marks for guest, disabled, synced, many roles and no MFA (Info; Investigate) | Info | none (MFA column needs Entra P1) | RoleManagement.Read.Directory, Directory.Read.All, AuditLog.Read.All |
 | 3011 | Every enabled privileged user can complete MFA | High | Entra P1 | AuditLog.Read.All, RoleManagement.Read.Directory |
+| 3012 | No privileged user is excluded from an enforced Conditional Access policy; emergency access accounts are listed, and when they are the only ones excluded the result is Investigate | High | Entra P1 | Policy.Read.All, RoleManagement.Read.Directory, GroupMember.Read.All, User.Read.All |
 | CA | Conditional Access What-If scenarios (family, long-running) | per row | Entra P1 (risk axes need P2) | Policy.Read.All or Policy.Read.ConditionalAccess, User.Read.All, GroupMember.Read.All, RoleManagement.Read.Directory |
 
 ### Conditional Access What-If family (`MP.RESOURCIVE.CA`)
 
 See `conditional-access/Test.MP.RESOURCIVE.CA.md` for how personas and scenarios are chosen, how outcomes are
 classified, the default expectations, the desired-state file and the `Resourcive.CA.*` settings.
+
+## Affected objects
+
+Checks that are about users, devices, applications or Conditional Access policies name them on the report's Affected
+objects page and add facts about each (Maester 3.0, `Add-MtAffectedObjectFact`), so one row shows everything the pack
+knows about an object. The facts carry typed values (`Raw`) under a key, which the findings report's Admins tab reads.
+
+| Object | Named by | Facts |
+| --- | --- | --- |
+| Privileged user | 3010 (every account), 3002, 3011, 2002 and 3012 (the ones to review) | Roles (active and eligible), account marks (guest, disabled, synced), last sign-in, password age, MFA registered and capable, passwordless, phishing-resistant method, preset policy, Conditional Access exclusions |
+| Application or managed identity | 3010 | Kind, owner, client secrets and certificates, roles |
+| Conditional Access policy | 3012 and the What-If family | State, who it targets, what it requires, exclusions, last change, privileged users excluded, failing scenarios where users are excluded |
+| Device | 1008 and 1012 | Operating system, join type, managed, compliant, last seen, and the check's own finding (BitLocker, Intune management) |
+| What-If persona (a user standing for a class) | The What-If family | How many users it stands for and its failing scenarios; never presented as a gap of that user alone |
+
+Facts are added for every user a check assesses, so a user who passes shows it, but only the users to review are named
+by the check; check 3010 names every privileged user. The What-If family does not name the user when
+`Resourcive.CA.RedactUserNames` is on. Facts are kept only while `Invoke-Maester` collects affected objects.
 
 ## What this pack does not duplicate
 
