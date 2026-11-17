@@ -28,7 +28,7 @@
         ImplementationCost = 'Low',
         Mitre = ('T1080', 'T1204.002'),
         Control = ('cis-m365:2.1.5', 'nist-800-53-r5:SI-3'),
-        Service = ('ExchangeOnline', 'Graph', 'SecurityCompliance'),
+        Service = ('ExchangeOnline', 'Graph'),
         License = 'ATP_ENTERPRISE',
         Author = 'NZLostboy'
     )]
@@ -37,7 +37,12 @@
     param()
 
     Write-Verbose 'Getting 365 Atp Policy...'
-    $policy = Get-MtExo -Request AtpPolicyForO365
+    $policies = @(Get-MtExo -Request AtpPolicyForO365)
+    if ($policies.Count -ne 1) {
+        Add-MtTestResultDetail -Result "Expected one ATP policy for Office 365, found $($policies.Count)."
+        return $false
+    }
+    $policy = $policies[0]
 
     $atpPolicyCheckList = @()
 

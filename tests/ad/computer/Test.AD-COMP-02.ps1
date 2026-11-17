@@ -27,6 +27,7 @@
         Severity = 'Info',
         Mitre = 'T1078.002',
         Service = 'ActiveDirectory',
+        Permission = ('ActiveDirectory:Ldap:computer:ReadProperty'),
         Author = 'soulemike'
     )]
     [CmdletBinding()]
@@ -34,7 +35,7 @@
     param(
         # Number of days without a logon before an enabled computer is considered dormant.
         [ValidateRange(1, 3650)]
-        [int] $DormantThresholdDays = 90
+        [int] $MaximumInactiveDays = 90
     )
 
     Write-Verbose "Starting Test-MtAdComputerDormantCount"
@@ -49,7 +50,7 @@
     }
 
     $computers = $adState.Computers
-    $thresholdDays = $DormantThresholdDays
+    $thresholdDays = $MaximumInactiveDays
     $thresholdDate = (Get-Date).AddDays(-$thresholdDays)
 
     # Count dormant computers (last logon older than the configured threshold and still enabled)

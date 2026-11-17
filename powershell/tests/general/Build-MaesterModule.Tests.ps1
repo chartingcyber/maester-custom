@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     $script:BuildScriptPath = Resolve-Path "$PSScriptRoot/../../../build/Build-MaesterModule.ps1"
     $script:RepoRoot = (Resolve-Path "$PSScriptRoot/../../..").Path
     # The fixtures this file created. Other test files use the same folder prefix and can run at the same time
@@ -61,6 +61,7 @@ function Get-TestThing {
 $__MtSession = @{
     FixtureValue = 'fixture'
     SpoCache     = @{}
+    FabricCache  = @{}
     GitHubCache  = @{}
     ADCache      = @{}
     ADConnection = $null
@@ -181,7 +182,7 @@ Describe 'Build-MaesterModule' {
 
                 $Psm1Content | Should -Match 'function Get-TestThing'
                 $Psm1Content | Should -Not -Match '\$Unused'
-                foreach ($SessionKey in 'ADCache', 'ADCollectionTime', 'ADConnection', 'ADCredential', 'GitHubCache', 'SpoCache') {
+                foreach ($SessionKey in 'ADCache', 'ADCollectionTime', 'ADConnection', 'ADCredential', 'FabricCache', 'GitHubCache', 'SpoCache') {
                     $Psm1Content | Should -Match "(?m)^\s*$SessionKey\s*="
                 }
                 $TestMetadata.'Get-TestThing'.Description | Should -BeLike 'Fixture test description.*'

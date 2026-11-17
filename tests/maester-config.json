@@ -5,8 +5,7 @@
     "EmergencyAccessAccounts": [],
     "DataverseEnvironmentUrl": "",
     "GitHubOrganization": "",
-    "GitHubApiBaseUri": "https://api.github.com",
-    "GitHubApiVersion": "2022-11-28",
+    "AzureDevOpsOrganization": "",
     "Resourcive.CA.MaxScenarios": 600
   },
   "TestSettings": []

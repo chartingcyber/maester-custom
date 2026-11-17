@@ -53,6 +53,7 @@
       "TenantId": null,
       "ConfigSource": "Custom/maester-config.json",
       "GlobalSettings": {
+        "AzureDevOpsOrganization": "",
         "DataverseEnvironmentUrl": "",
         "EmergencyAccessAccounts": [
           {
@@ -60,8 +61,6 @@
             "Id": "c0000000-0000-0000-0000-000000000001"
           }
         ],
-        "GitHubApiBaseUri": "https://api.github.com",
-        "GitHubApiVersion": "2022-11-28",
         "GitHubOrganization": "",
         "GoldenCustomOnly": "custom"
       },
@@ -75,6 +74,7 @@
       "TenantId": "11111111-2222-3333-4444-555555555555",
       "ConfigSource": "Custom/maester-config.json",
       "GlobalSettings": {
+        "AzureDevOpsOrganization": "",
         "DataverseEnvironmentUrl": "",
         "EmergencyAccessAccounts": [
           {
@@ -82,8 +82,6 @@
             "Id": "c0000000-0000-0000-0000-000000000001"
           }
         ],
-        "GitHubApiBaseUri": "https://api.github.com",
-        "GitHubApiVersion": "2022-11-28",
         "GitHubOrganization": "",
         "GoldenCustomOnly": "custom"
       },

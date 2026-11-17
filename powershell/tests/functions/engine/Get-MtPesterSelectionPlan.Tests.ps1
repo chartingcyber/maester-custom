@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     Import-Module "$PSScriptRoot/../../../Maester.psd1" -Force
 
     $script:folder = Join-Path $TestDrive 'pester'
@@ -98,6 +98,10 @@ Describe 'Get-MtPesterSelectionPlan' {
     It 'Lets -ExcludeTestId win over -TestId' {
         $plan = Get-Plan -Selection @{ TestId = @('S.*'); ExcludeTestId = @('S.1004') }
         Get-Reason $plan 'S.1004' | Should -Be 'ExcludedById'
+    }
+
+    It 'Excludes no Pester-format test with ExcludeProduct, because none has a product' {
+        (Get-Plan -Selection @{ ExcludeProduct = @('*') }).ExcludeLines.Count | Should -Be 0
     }
 
     It 'Lifts the Preview exclusion for an exact ID but not for a wildcard' {

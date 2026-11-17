@@ -1,0 +1,107 @@
+---
+title: Installation guide
+description: What Maester needs, how to install, update and pin it, and the extra modules each service's tests use.
+---
+
+import InstallCommand from '@components/InstallCommand.astro';
+
+This page is the reference for installing Maester and the modules its tests use. To go from nothing to your first
+report, follow [Getting started](getting-started.mdx).
+
+## Requirements
+
+- **PowerShell 7.4 or later** on Windows, Linux or macOS. Windows PowerShell 5.1 is not supported.
+- An account that can read your tenant's configuration, such as Global Reader. See
+  [Connect-Maester](connect-maester/readme.md).
+
+## Install Maester
+
+<InstallCommand />
+
+The tests ship inside the module, so there is nothing else to download and no folder to set up. The one module
+Maester requires, `Microsoft.Graph.Authentication`, is installed with it.
+
+You need a folder only to change settings or add your own tests. Put a `maester-config.json` (see
+[Configuration](configuration/overview.md)) and a `custom` folder for your tests (see
+[Writing custom tests](writing-tests/index.mdx)) in it, and run `Invoke-Maester -Path <folder>` or run Maester from
+that folder.
+
+Upgrading from Maester 2.x? See [Upgrading from 2.x](upgrading-from-2x.md).
+
+## Update or pin a version
+
+Update to the latest release (add `-AllowPrerelease` for the latest preview):
+
+```powershell
+Update-Module Maester
+```
+
+For scheduled runs, pin a version so that a new release changes your results only when you choose. Read the
+[release notes](https://github.com/maester365/maester/releases), then install the version you reviewed:
+
+```powershell
+Install-Module Maester -RequiredVersion <version> -Scope CurrentUser
+```
+
+## Optional modules and permissions
+
+`Connect-Maester` connects to Microsoft Graph, which is enough for the Entra ID tests and most of the others. The
+tests for the services below need a module or a connection of their own. When one is missing, its tests are
+reported as **Skipped** with the reason, and `Connect-Maester` shows the command that installs the missing module.
+
+| Service | Module | How to connect | Permissions |
+| --- | --- | --- | --- |
+| Azure, Copilot Studio (Dataverse) | `Az.Accounts` | [Connect-Maester](connect-maester/readme.md#connect-to-azure-exchange-online-copilot-studio-and-teams) | [Azure](sections/create-entra-app.md#optional-grant-permissions-to-azure), [Dataverse](sections/create-entra-app.md#optional-grant-dataverse-permissions-for-copilot-studio) |
+| Exchange Online, Security & Compliance | `ExchangeOnlineManagement` | [Connect-Maester](connect-maester/readme.md#connect-to-azure-exchange-online-copilot-studio-and-teams) | [Exchange Online](#exchange-online) |
+| Microsoft Teams | `MicrosoftTeams` | [Connect-Maester](connect-maester/readme.md#connect-to-azure-exchange-online-copilot-studio-and-teams) | [Teams](sections/create-entra-app.md#optional-grant-permissions-to-teams) |
+| SharePoint Online | `PnP.PowerShell`, and an app registration whose client ID you pass with `-SharePointClientId` | [Connect to SharePoint Online](connect-maester/readme.md#connect-to-sharepoint-online-optional) | [SharePoint Online](sections/create-entra-app.md#optional-grant-permissions-to-sharepoint-online) |
+| GitHub | None | [Connect to GitHub](connect-maester/readme.md#connect-to-github-optional) | The Maester GitHub App, or a token |
+| Azure DevOps | `ADOPS` | [Connect to Azure DevOps](connect-maester/readme.md#connect-to-azure-devops-optional) | [Azure DevOps](#azure-devops) |
+| Active Directory | None | `Connect-Maester -Service ActiveDirectory`, see [AD connection troubleshooting](connect-maester/ad-connection-troubleshooting.md) | |
+
+Install the Microsoft 365 modules in one go:
+
+```powershell
+Install-Module Az.Accounts, ExchangeOnlineManagement, MicrosoftTeams, PnP.PowerShell -Scope CurrentUser
+```
+
+Then connect to all of them. GitHub, Azure DevOps and Active Directory are not part of `All`, so connect to them
+separately.
+
+```powershell
+Connect-Maester -Service All -SharePointClientId '<Client ID>'
+```
+
+### Exchange Online
+
+Exchange Online has its own [role-based access control](https://learn.microsoft.com/exchange/permissions-exo/permissions-exo).
+The Exchange tests need one of these roles:
+
+- View-Only Configuration
+- O365SupportViewConfig
+
+The Security & Compliance tests connect with `Connect-IPPSSession`, which comes with the same
+`ExchangeOnlineManagement` module. For unattended runs, see
+[Connect-Maester advanced](connect-maester/connect-maester-advanced.mdx).
+
+### Azure DevOps
+
+The Azure DevOps tests need the **Project-Scoped Users** role at the organization level, at least. Some need more,
+see [Connect-Maester advanced](connect-maester/connect-maester-advanced.mdx). Connect with
+`Connect-Maester -Service AzureDevOps -AzureDevOpsOrganization <your-organization>`, see
+[Connect to Azure DevOps](connect-maester/readme.md#connect-to-azure-devops-optional).
+
+## Pester
+
+Maester 3.0 does not need Pester. Install it only if you have custom tests written in the Pester format
+(`*.Tests.ps1`), see [Pester-format tests](writing-tests/pester-format-tests.md):
+
+```powershell
+Install-Module Pester -MinimumVersion 5.7.1 -SkipPublisherCheck -Force -Scope CurrentUser
+```
+
+## Next steps
+
+- [Getting started](getting-started.mdx): your first report, and the steps from there to continuous monitoring.
+- [Connect-Maester](connect-maester/readme.md): every way to connect, including unattended runs.
+- [Monitoring with Maester](monitoring/readme.mdx): run Maester on a schedule.

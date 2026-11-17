@@ -1,0 +1,20 @@
+---
+// The test builder, in the docs layout: its own tab in the header, with the guides on writing tests beside it.
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import TestBuilder from '../components/TestBuilder/index.jsx';
+---
+
+<StarlightPage
+	frontmatter={{
+		title: 'Test builder',
+		description: 'Pick the attributes of a Maester test, with the rubric for each one, and get the code.',
+		tableOfContents: false,
+		// A tool, not a page in a sequence: no previous and next links under it.
+		prev: false,
+		next: false,
+	}}
+>
+	<div class="not-content">
+		<TestBuilder client:load />
+	</div>
+</StarlightPage>

@@ -1,0 +1,138 @@
+/* Pages outside the docs: home, sponsor, contributors, manifesto, tools. Builds on theme.css. */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+html {
+	background: var(--sl-color-black);
+	color: var(--sl-color-white);
+	font-family: var(--sl-font);
+	-webkit-text-size-adjust: 100%;
+}
+body {
+	margin: 0;
+	background: var(--sl-color-black);
+	color: var(--sl-color-white);
+	line-height: 1.6;
+}
+a {
+	color: var(--sl-color-accent);
+}
+img {
+	max-width: 100%;
+}
+code {
+	font-family: var(--sl-font-mono);
+	font-size: 0.9em;
+}
+:focus-visible {
+	outline: 2px solid var(--sl-color-accent);
+	outline-offset: 2px;
+}
+.skip {
+	position: absolute;
+	left: -9999px;
+}
+.skip:focus {
+	left: 1rem;
+	top: 1rem;
+	z-index: 100;
+	background: var(--sl-color-black);
+	padding: 0.5rem 1rem;
+}
+.mt-light-only {
+	display: none;
+}
+:root[data-theme='light'] .mt-light-only {
+	display: initial;
+}
+:root[data-theme='light'] .mt-dark-only {
+	display: none;
+}
+
+/* Header */
+.site-header {
+	position: sticky;
+	top: 0;
+	z-index: 50;
+	background: color-mix(in srgb, var(--sl-color-black) 88%, transparent);
+	backdrop-filter: blur(8px);
+	border-bottom: 1px solid var(--mt-line);
+}
+
+/* Main */
+.site-main {
+	min-height: 60vh;
+}
+.site-main--wide {
+	max-width: 75rem;
+	margin: 0 auto;
+	padding: 2.5rem 1rem 4rem;
+}
+.site-prose {
+	max-width: 46rem;
+	margin: 0 auto;
+	padding: 3rem 1rem 5rem;
+}
+.site-prose h1 {
+	font-size: clamp(2rem, 5vw, 2.75rem);
+	letter-spacing: -0.03em;
+	line-height: 1.1;
+}
+.site-prose h2 {
+	letter-spacing: -0.02em;
+	margin-top: 2.5rem;
+}
+.site-prose p,
+.site-prose li {
+	color: var(--sl-color-gray-2);
+}
+
+/* Footer */
+.site-footer {
+	border-top: 1px solid var(--mt-line);
+	background: var(--mt-canvas);
+	font-size: 0.875rem;
+}
+.site-footer__inner {
+	max-width: 75rem;
+	margin: 0 auto;
+	padding: 3rem 1rem 2rem;
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+	gap: 2rem;
+}
+.site-footer__inner > div {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+.site-footer h2 {
+	font-family: var(--sl-font-mono);
+	font-size: 0.72rem;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--sl-color-gray-3);
+	font-weight: 500;
+	margin: 0 0 0.25rem;
+}
+.site-footer a {
+	color: var(--sl-color-gray-2);
+	text-decoration: none;
+}
+.site-footer a:hover {
+	color: var(--sl-color-white);
+}
+.site-footer__brand p {
+	color: var(--sl-color-gray-3);
+	margin: 0;
+}
+.site-footer__legal {
+	max-width: 75rem;
+	margin: 0 auto;
+	padding: 0 1rem 2rem;
+	color: var(--sl-color-gray-3);
+	font-size: 0.8rem;
+}

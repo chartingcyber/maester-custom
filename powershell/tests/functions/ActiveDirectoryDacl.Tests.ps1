@@ -1,4 +1,4 @@
-Describe 'Active Directory DACL tests read AccessControlType as the collector emits it' {
+﻿Describe 'Active Directory DACL tests read AccessControlType as the collector emits it' {
     BeforeAll {
         Import-Module "$PSScriptRoot/../../Maester.psd1" -Force
         . "$PSScriptRoot/../helpers/Use-MtModuleFunction.ps1"
@@ -54,6 +54,8 @@ Describe 'Active Directory DACL tests read AccessControlType as the collector em
     BeforeEach {
         $script:Result = $null
 
+        # The checks skip off Windows, where the collector cannot run; these tests feed them collected data.
+        Mock -ModuleName Maester Test-MtAdDaclPlatformSupported { $true }
         Mock -ModuleName Maester Get-MtADDomainState { [PSCustomObject]@{ DaclEntries = $script:DaclEntries } }
         Mock -ModuleName Maester Add-MtTestResultDetail {
             param($Result)

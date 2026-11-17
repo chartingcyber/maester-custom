@@ -41,7 +41,11 @@
         # Optional run context from Invoke-Maester: the selection, the selection plan and the run config.
         # Used to add the 3.0 fields (reason codes, family IDs) to each row.
         [Parameter(Mandatory = $false)]
-        [psobject] $RunContext
+        [psobject] $RunContext,
+
+        # Add Previous: the results of the last run on the tenant in the output folder (Get-MtPreviousResult).
+        [Parameter(Mandatory = $false)]
+        [switch] $IncludePrevious
     )
 
     $shouldSkipVersionCheck = $SkipVersionCheck.IsPresent
@@ -390,14 +394,26 @@
             $result = 'Error'
         } elseif ($testResultDetail.TestInvestigate -eq $true) {
             $result = 'Investigate'
-        } elseif ((
-                $test -and
-                $test.ErrorRecord -and
-                $test.ErrorRecord.Count -gt 0 -and
-                $test.ErrorRecord[0].CategoryInfo -and
-                $test.ErrorRecord[0].CategoryInfo.Reason) -and
-            (@('RuntimeException', 'ParameterBindingValidationException', 'ParameterBindingException', 'HttpRequestException', 'TaskCanceledException') -contains $test.ErrorRecord[0].CategoryInfo.Reason )) {
-            Write-Verbose "Setting result=Error $($name) because: $($test.ErrorRecord[0].CategoryInfo.Reason)"
+        } elseif ($test -and $test.Result -eq 'Failed' -and
+            $test.ErrorRecord -and $test.ErrorRecord.Count -gt 0 -and
+            $test.ErrorRecord[0].FullyQualifiedErrorId -ne 'PesterAssertionFailed') {
+            # Only a row Pester reports as Failed is reclassified. Pester implements a skip by
+            # throwing, so a skipped row also carries an ErrorRecord, and without the Result test
+            # above it would be read as a crash.
+            #
+            # Among failed rows, a failed assertion is a compliance failure and keeps $test.Result.
+            # Anything else that threw is a defect in the test or in its environment, which is an
+            # Error: the same decision Invoke-MtNativePlan makes for the native rows on $status.
+            #
+            # This replaces an allowlist of five exception type names matched on
+            # CategoryInfo.Reason. Any crash outside that list fell through to $test.Result, which
+            # for a crashed test is Failed, so a timeout, a missing cmdlet or a failed task was
+            # counted in FailedCount as if the tenant were non-compliant. Measured against Pester:
+            # a failed assertion is the only one that carries FullyQualifiedErrorId
+            # 'PesterAssertionFailed', while 'throw' on a string, a TimeoutException and a
+            # CommandNotFoundException carry the thrown message or the type name, and the last two
+            # were not in the allowlist.
+            Write-Verbose "Setting result=Error $($name) because: $($test.ErrorRecord[0].FullyQualifiedErrorId)"
             $result = 'Error'
         } else {
             $result = $test.Result
@@ -632,6 +648,8 @@
             ExcludeTag = $excludeTag
             DryRun     = [bool]($RunContext -and $RunContext.DryRun)
         }
+        # The catalogue of each framework the rows map to, so that a consumer can show requirements no test checks.
+        Frameworks        = @(Get-MtResultFramework -InputObject $mtTests)
         Tests             = $mtTests
         Blocks            = $mtBlocks
         EndOfJson         = 'EndOfJson' # Always leave this as the last property. Used by the script to determine the end of the JSON
@@ -644,6 +662,24 @@
     # Reports of other tools added with Add-MtReportAttachment. Only present when there are some, so other results are unchanged.
     if ($__MtSession.ReportAttachments -and $__MtSession.ReportAttachments.Count -gt 0) {
         $mtTestResults | Add-Member -MemberType NoteProperty -Name 'Attachments' -Value @($__MtSession.ReportAttachments)
+    }
+
+    # The Maester Packs of the run. Only present when the run had some, so other results are unchanged.
+    $packs = @(if ($RunContext -and $RunContext.PSObject.Properties['PackSet']) { Get-MtResultPack -PackSet @($RunContext.PackSet) })
+    if ($packs.Count -gt 0) {
+        $mtTestResults | Add-Member -MemberType NoteProperty -Name 'Packs' -Value $packs
+    }
+
+    # The previous run on the tenant, for a report that shows what changed. Never fail the conversion over it.
+    # This runs before the run writes its own files, so the file at this run's output path, when the caller reuses
+    # a name such as TestResults-latest, is the previous run and is read like any other.
+    if ($IncludePrevious.IsPresent -and $OutputFiles -and $OutputFiles.PSObject.Properties['OutputFolder']) {
+        try {
+            $previous = Get-MtPreviousResult -Folder ([string]$OutputFiles.OutputFolder) -TenantId $tenantId
+            if ($previous) { $mtTestResults | Add-Member -MemberType NoteProperty -Name 'Previous' -Value $previous }
+        } catch {
+            Write-Verbose "Failed to read the previous result: $($_.Exception.Message)"
+        }
     }
 
     # Add output files information if provided
@@ -674,13 +710,33 @@ function New-MtResultConfig {
     )
 
     if ($null -eq $RunConfig) { return $null }
-    if ($NativeRows.Count -eq 0) { return $RunConfig }
 
-    $copy = [pscustomobject]@{}
-    foreach ($p in $RunConfig.PSObject.Properties) {
-        if ($p.Name -in 'TestSettings', 'TestSettingsHash') { continue }
-        $copy | Add-Member -NotePropertyName $p.Name -NotePropertyValue $p.Value
+    # The result records the config, so the value of a sensitive setting is replaced before it is copied.
+    $registry = (Get-MtSettingRegistry).Settings
+    $globalSettings = if ($RunConfig.PSObject.Properties['GlobalSettings']) { $RunConfig.GlobalSettings } else { $null }
+    if ($globalSettings -and @($globalSettings.PSObject.Properties | Where-Object { $null -ne $_.Value -and $registry.ContainsKey($_.Name) -and $registry[$_.Name].Sensitive }).Count -gt 0) {
+        $redacted = [pscustomobject]@{}
+        foreach ($p in $globalSettings.PSObject.Properties) {
+            $isSensitive = $null -ne $p.Value -and $registry.ContainsKey($p.Name) -and $registry[$p.Name].Sensitive
+            $redacted | Add-Member -NotePropertyName $p.Name -NotePropertyValue $(if ($isSensitive) { '[redacted]' } else { $p.Value })
+        }
+        $globalSettings = $redacted
     }
+    $withSettings = {
+        param($skip)
+        $object = [pscustomobject]@{}
+        foreach ($p in $RunConfig.PSObject.Properties) {
+            if ($p.Name -in $skip) { continue }
+            $object | Add-Member -NotePropertyName $p.Name -NotePropertyValue $(if ($p.Name -eq 'GlobalSettings') { $globalSettings } else { $p.Value })
+        }
+        $object
+    }
+    if ($NativeRows.Count -eq 0) {
+        if ([object]::ReferenceEquals($globalSettings, $RunConfig.GlobalSettings)) { return $RunConfig }
+        return & $withSettings @()
+    }
+
+    $copy = & $withSettings @('TestSettings', 'TestSettingsHash')
     $catalog = @{}
     foreach ($t in @(Get-MtTestCatalog)) { if ($t.Id) { $catalog[$t.Id] = $t } }
     $settings = foreach ($row in $Rows) {

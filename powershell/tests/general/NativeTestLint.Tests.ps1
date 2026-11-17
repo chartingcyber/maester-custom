@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     Import-Module "$PSScriptRoot/../../Maester.psd1" -Force -WarningAction SilentlyContinue
 
     function Get-TestFunction {
@@ -137,7 +137,7 @@ Describe 'Product of the built-in tests' {
         $script:builtIn = @(Get-MtTest | Where-Object BuiltIn)
 
         # The product of every test in a folder that is named after a service or a suite of one product.
-        # tests/cis is one folder for many products, so it is only checked against the list.
+        # tests/cis and tests/disa are one folder for many products, so they are only checked against the list.
         $script:folderProduct = [ordered]@{
             'maester/azure'                = 'azure'
             'maester/azure-devops'         = 'azure-devops'
@@ -154,6 +154,8 @@ Describe 'Product of the built-in tests' {
             'cisa/entra'                   = 'entra'
             'cisa/exchange'                = 'exchange'
             'cisa/sharepoint'              = 'sharepoint'
+            'asd/entra'                    = 'entra'
+            'asd/intune'                   = 'intune'
             'ad'                           = 'ad'
             'eidsca'                       = 'entra'
             'orca'                         = 'defender'
@@ -222,7 +224,7 @@ Describe 'Product of the built-in tests' {
 
     It 'Has a product in the folder map for every service folder' {
         $missing = $script:builtIn | ForEach-Object { Get-TestFolder -File $_.File } | Select-Object -Unique |
-            Where-Object { $_ -ne 'cis' -and -not $script:folderProduct.Contains($_) -and -not $script:folderProduct.Contains(($_ -split '/')[0]) }
+            Where-Object { $_ -notin 'cis', 'disa' -and -not $script:folderProduct.Contains($_) -and -not $script:folderProduct.Contains(($_ -split '/')[0]) }
         $missing | Should -BeNullOrEmpty -Because 'a new test folder needs its product in the folder map of this test'
     }
 }

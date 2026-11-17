@@ -1,4 +1,4 @@
-function Request-MtGitHubAppOrganizationInstall {
+﻿function Request-MtGitHubAppOrganizationInstall {
     <#
     .SYNOPSIS
     Guides an interactive user through installing or approving the Maester GitHub App for an organization.
@@ -20,7 +20,7 @@ function Request-MtGitHubAppOrganizationInstall {
         [string] $TokenDocsUrl = 'https://maester.dev/docs/commands/Connect-MtGitHub'
     )
 
-    if (-not (Get-MtUserInteractive)) {
+    if (-not (Get-MtUserInteractive) -or (Test-MtGitHubPromptBlocked)) {
         return $false
     }
 

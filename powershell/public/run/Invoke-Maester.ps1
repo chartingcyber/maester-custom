@@ -4,19 +4,22 @@
     This is the main Maester command that runs the tests and generates a report of the results.
 
     .DESCRIPTION
-    Using Invoke-Maester is the easiest way to run the Pester tests and generate a report of the results.
+    Invoke-Maester runs the tests against the services you connected to with Connect-Maester and writes a report of the results.
 
-    For more advanced configuration, you can directly use the Pester module and the Get-MtHtmlReport function.
+    By default, Invoke-Maester runs the tests that ship with Maester and the custom tests in the Custom folder of the current directory, except Active Directory tests, preview tests and long-running tests. With -Path, native custom tests (`Test.*.ps1`) are found anywhere under the path and Pester-format custom tests (`*.Tests.ps1`) only in a Custom folder. Folders are searched up to three levels deep. Active Directory tests run only after an explicit Connect-Maester -Service ActiveDirectory call succeeds.
 
-    By default, Invoke-Maester runs the tests that ship with Maester and the custom tests in the Custom folder of the current directory, except Active Directory tests, preview tests and long-running tests. With -Path, native custom tests (Test.*.ps1) are found anywhere under the path and Pester-format custom tests (*.Tests.ps1) only in a Custom folder. Folders are searched up to three levels deep. Active Directory tests run only after an explicit Connect-Maester -Service ActiveDirectory call succeeds.
+    Invoke-Maester checks that Microsoft Graph is connected only when the run needs it: when a selected test declares the Graph service, when the run includes Pester-format tests (which do not declare their services), or when the results are sent by mail or to a Teams channel with -TeamId and -TeamChannelId. A run of tests that read nothing from Graph, such as Active Directory tests or a pack that reads a results file, needs no -SkipGraphConnect.
 
-    -Product, -Feature, -Area, -Severity and -Suite select tests by their typed attributes. Each takes a list: the values of one selector are alternatives, and different selectors must all match. They combine the same way with -Tag and -TestId. The tags of Maester 2.x, such as CA or CIS, still select the same built-in tests.
+    -Product, -Feature, -Area, -Severity and -Suite select tests by their typed attributes. Each takes a list: the values of one selector are alternatives, and different selectors must all match. They combine the same way with -Tag and -TestId. -ExcludeProduct leaves out the tests of a product and wins over every selector. The tags of Maester 2.x, such as CA or CIS, still select the same built-in tests.
+
+    .PARAMETER ExcludeProduct
+    Do not run the tests of these products: keys such as entra or exchange, or an alias such as 'exo' or 'Entra ID'. Matches a test's Product or any of its RelatedProduct values, and '*' wildcards are allowed, as for -Product. Adds to Selection.ExcludeProduct in the run configuration and wins over -Product, -TestId and the other selectors. Excluded tests are reported as NotRun with the reason code ExcludedByProduct. A test without a product, such as a Pester-format custom test, is never excluded.
 
     .PARAMETER IncludeLongRunning
     Include tests that can take a long time to run in tenants with a large number of objects.
 
     .PARAMETER IncludePreview
-    Include tests that are still being tested or are dependent on preview APIs.
+    Include preview tests: new tests that are left out of a default run while they are tried out and feedback on them is gathered.
 
     .PARAMETER NoLogo
     Do not show the Maester logo.
@@ -30,95 +33,67 @@
     .EXAMPLE
     Invoke-Maester
 
-    Runs the built-in tests and the custom tests in the ./Custom folder (except for Active Directory tests, preview tests and long-running tests) and generates a report of the results in the ./test-results folder.
+    Runs the tests that ship with Maester and the custom tests in the ./Custom folder, except Active Directory tests, preview tests and long-running tests. Writes the report to the ./test-results folder and opens it in the browser.
 
     .EXAMPLE
-    Invoke-Maester ./maester
+    Invoke-Maester -TestId MT.1005
 
-    Runs the built-in tests and the custom tests and maester-config.json in the folder ./maester (except for Active Directory tests, preview tests and long-running tests) and generates a report of the results in the default ./test-results folder.
-
-    .EXAMPLE
-    Invoke-Maester -Tag 'CA' -IncludeLongRunning
-
-    Runs the tests with the tag "CA" and includes long-running tests. Generates a report of the results in the default ./test-results folder.
+    Runs one test. A test named by its exact ID runs even if it is a preview or long-running test.
 
     .EXAMPLE
-    Invoke-Maester -Tag 'CA', 'App' -IncludePreview
+    Invoke-Maester -TestId 'MT.1005', 'CISA.MS.AAD.3.*'
 
-    Runs the tests with the tags 'CA' and 'App' and includes preview tests. Generates a report of the results in the default ./test-results folder.
+    Runs test MT.1005 and the tests whose ID starts with CISA.MS.AAD.3. IDs are not case-sensitive and '*' is a wildcard.
 
     .EXAMPLE
-    Invoke-Maester -Product entra -Severity Critical, High
+    Invoke-Maester -ExcludeTestId 'MT.1024.*', 'CIS.M365.1.1.1'
 
-    Runs the Entra ID tests whose severity is Critical or High. Values of one selector are alternatives; different selectors must all match.
+    Runs everything a default run does, except the tests with these IDs. -ExcludeTestId wins over -TestId.
+
+    .EXAMPLE
+    Invoke-Maester -Product entra
+
+    Runs the Microsoft Entra tests: every test whose Product or RelatedProduct is entra.
+
+    .EXAMPLE
+    Invoke-Maester -Product entra, exchange -Severity Critical, High
+
+    Runs the Entra and Exchange Online tests whose severity is Critical or High. The values of one selector are alternatives; different selectors must all match.
+
+    .EXAMPLE
+    Invoke-Maester -ExcludeProduct exchange, teams
+
+    Runs everything a default run does, except the tests about Exchange Online and Teams. -ExcludeProduct wins over every selector. Pester-format custom tests have no product and still run.
 
     .EXAMPLE
     Invoke-Maester -Suite cisa -Area authentication
 
-    Runs the tests of the CISA suite that are about authentication. -Product, -Feature, -Area, -Severity and -Suite select by the typed attributes of the tests and combine with -Tag and -TestId.
+    Runs the tests of the CISA suite that are about authentication.
 
     .EXAMPLE
-    Invoke-Maester -OutputFolder './my-test-results'
+    Invoke-Maester -Feature conditional-access
 
-    Runs tests and generates a report of the results in the ./my-test-results folder.
+    Runs the tests about one feature of a product, here Conditional Access.
 
     .EXAMPLE
-    Invoke-Maester -OutputHtmlFile './test-results/TestResults.html'
+    Invoke-Maester -IncludeLongRunning -IncludePreview
 
-    Runs the tests and generates a report of the results in the specified file.
+    Adds the long-running tests and the preview tests to the run.
+
+    .EXAMPLE
+    Invoke-Maester -Product entra -DryRun -PassThru
+
+    Shows what would run, and why every other test would not, without running any test. Each test that would have run is reported as NotRun with reason DryRun. Native tests are only read; Pester-format custom tests still go through Pester discovery, which runs their BeforeDiscovery and Describe-level code.
+
+    .EXAMPLE
+    Invoke-Maester ./maester
+
+    Runs the tests that ship with Maester and the custom tests in the ./maester folder, with the maester-config.json found there.
 
     .EXAMPLE
     Invoke-Maester -Path ./maester/Custom -SkipBuiltIn
 
     Runs only the custom tests in the ./maester/Custom folder.
-
-    .EXAMPLE
-    Invoke-Maester -MailRecipient john@contoso.com
-
-    Runs the tests and sends a report of the results to an email recipient.
-
-    .EXAMPLE
-    Invoke-Maester -TeamId '00000000-0000-0000-0000-000000000000' -TeamChannelId '19%3A00000000000000000000000000000000%40thread.tacv2'
-
-    Runs the tests and posts a summary of the results to a Teams channel.
-
-    .EXAMPLE
-    Invoke-Maester -TeamChannelWebhookUri 'https://some-url.logic.azure.com/workflows/invoke?api-version=2016-06-01'
-
-    Runs the tests and posts a summary of the results to a Teams channel.
-
-    .EXAMPLE
-    Invoke-Maester -Verbosity Normal
-
-    Shows results of tests as they are run, including details on failed tests.
-
-    .EXAMPLE
-    ```powershell
-    $configuration = New-PesterConfiguration
-    $configuration.Run.Path = './tests/Custom'
-    $configuration.Filter.Tag = 'CA'
-    $configuration.Filter.ExcludeTag = 'App'
-
-    Invoke-Maester -PesterConfiguration $configuration
-    ```
-
-    Runs the built-in tests and the custom tests in the ./tests/Custom folder that include the 'CA' tag and exclude the 'App' tag.
-
-    .EXAMPLE
-    ```powershell
-    Connect-Maester -Service All
-    Invoke-Maester -IncludeLongRunning -IncludePreview
-    ```
-
-    Connect to all Microsoft 365 services and run their tests, including the long-running and preview tests. Active Directory tests remain excluded.
-
-    .EXAMPLE
-    ```powershell
-    Connect-Maester -Service ActiveDirectory
-    Invoke-Maester -Product ad -SkipGraphConnect
-    ```
-
-    Explicitly connect to Active Directory, then run the Active Directory tests without requiring a Microsoft Graph connection.
 
     .EXAMPLE
     Invoke-Maester -Pack ZTA
@@ -136,14 +111,65 @@
     Runs the tests that ship with Maester and every installed pack. Without -Pack or -AllPacks, installed packs do not run.
 
     .EXAMPLE
-    Invoke-Maester -TestId 'MT.1005', 'CISA.MS.AAD.3.*'
+    ```powershell
+    Connect-Maester -Service All
+    Invoke-Maester -IncludeLongRunning -IncludePreview
+    ```
 
-    Runs only test MT.1005 and the tests whose ID starts with CISA.MS.AAD.3. A test named by its exact ID runs even if it is a preview or long-running test.
+    Connect to all Microsoft 365 services and run their tests, including the long-running and preview tests. Active Directory tests remain excluded.
 
     .EXAMPLE
-    Invoke-Maester -ExcludeTestId 'MT.1024.*' -DryRun -PassThru
+    ```powershell
+    Connect-Maester -Service ActiveDirectory
+    Invoke-Maester -Product ad
+    ```
 
-    Shows what would run, and why every other test would not, without running any test. Each test that would have run is reported as NotRun with reason DryRun. Native tests are only read; Pester-format custom tests still go through Pester discovery, which runs their BeforeDiscovery and Describe-level code.
+    Explicitly connect to Active Directory, then run the Active Directory tests. They do not use Microsoft Graph, so no Graph connection is needed.
+
+    .EXAMPLE
+    Invoke-Maester -OutputFolder ./my-test-results
+
+    Runs the tests and writes the html, markdown and json reports to the ./my-test-results folder.
+
+    .EXAMPLE
+    Invoke-Maester -OutputHtmlFile ./test-results/TestResults.html
+
+    Runs the tests and writes only the html report, to the file named.
+
+    .EXAMPLE
+    Invoke-Maester -NonInteractive -OutputFolder ./test-results
+
+    Runs unattended, for a scheduled task or a pipeline: no logo, no dashboard, no run summary, and the report is not opened in the browser.
+
+    .EXAMPLE
+    Invoke-Maester -OutputMode Stream
+
+    Writes the console output as lines instead of the full-screen dashboard. This is what a pipeline or redirected output gets without asking; Plain also leaves out colour and symbols.
+
+    .EXAMPLE
+    Invoke-Maester -Verbosity Normal
+
+    Writes one line for each finished test, and keeps a two-line status at the bottom of the console instead of the dashboard.
+
+    .EXAMPLE
+    $results = Invoke-Maester -PassThru -NonInteractive
+
+    Returns the results as an object, for a script that goes on to read $results.FailedCount or $results.Tests.
+
+    .EXAMPLE
+    Invoke-Maester -MailRecipient john@contoso.com
+
+    Runs the tests and sends a report of the results to an email recipient.
+
+    .EXAMPLE
+    Invoke-Maester -TeamId '00000000-0000-0000-0000-000000000000' -TeamChannelId '19%3A00000000000000000000000000000000%40thread.tacv2'
+
+    Runs the tests and posts a summary of the results to a Teams channel.
+
+    .EXAMPLE
+    Invoke-Maester -TeamChannelWebhookUri 'https://some-url.logic.azure.com/workflows/invoke?api-version=2016-06-01'
+
+    Runs the tests and posts a summary of the results to a Teams channel.
 
     .EXAMPLE
     Invoke-Maester -Config ./maester-config.json, @{ Selection = @{ DefaultAction = 'Skip' }; TestSettings = @(@{ Id = 'MT.1005'; Enabled = $true }) }
@@ -152,6 +178,9 @@
 
     .LINK
     https://maester.dev/docs/commands/Invoke-Maester
+
+    .LINK
+    https://maester.dev/docs/configuration/invoke-maester
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Colors are beautiful')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Incorrectly flags ExportCsv and ExportExcel as unused')]
@@ -174,6 +203,10 @@
         # Matches a test's Product or any of its RelatedProduct values. '*' wildcards are allowed.
         [string[]] $Product,
 
+        # Do not run the tests of these products, matched like -Product. Wins over every selector.
+        # A test without a product, such as a Pester-format custom test, is never excluded.
+        [string[]] $ExcludeProduct,
+
         # Only run the tests about these features of a product, for example conditional-access. '*' wildcards are allowed.
         [string[]] $Feature,
 
@@ -184,7 +217,7 @@
         # A severity set for a test in the run configuration is the one that counts.
         [string[]] $Severity,
 
-        # Only run the tests of these suites, for example Maester, CISA, CIS, EIDSCA, ORCA or AD. '*' wildcards are allowed.
+        # Only run the tests of these suites, for example Maester, CISA, CIS, ASD, DISA, EIDSCA, ORCA or AD. '*' wildcards are allowed.
         [string[]] $Suite,
 
         # Run these Maester Packs, by pack ID or code, for example ZTA or maester.zero-trust-assessment.
@@ -206,12 +239,15 @@
         # The path to the file to save the test results in html format. The filename should include an .html extension.
         [string] $OutputHtmlFile,
 
-        # Collect the affected objects: the consolidated list of objects the run touched.
-        # Adds the AffectedObjects property to the results, the Affected objects page to the html report and,
-        # with -OutputFolder, the <name>-affected-objects.json file (plus -affected-objects.csv with -ExportCsv).
-        # Off by default because it enlarges the report; it is enabled automatically when
-        # -RedactUserIdentity is used, since redaction is driven by the inventory.
+        # Affected objects are collected by default. The switch is kept so that older scripts still run.
         [switch] $IncludeAffectedObjects,
+
+        # Do not collect the affected objects: the consolidated list of objects the run touched.
+        # By default the results carry the AffectedObjects property, the html report has an Affected objects page
+        # when any test recorded an object and, with -OutputFolder, the <name>-affected-objects.json file is written
+        # (plus -affected-objects.csv with -ExportCsv). Use this switch to keep the report smaller. The objects are
+        # still collected when -RedactUserIdentity is used, since redaction is driven by them, but left out of the outputs.
+        [switch] $ExcludeAffectedObjects,
 
         # Replaces user identities (display names, user principal names and object ids) with stable
         # stable ids in the generated outputs.
@@ -288,8 +324,9 @@
         # To get the Webhook Uri, right-click on the channel in Teams and select 'Workflow'. Create a workflow using the 'Post to a channel when a webhook request is received' template. Use the value after 'complete.'
         [string] $TeamChannelWebhookUri,
 
-        # Skip the graph connection check.
-        # This is used for running tests that does not require a Graph connection.
+        # Skip the Microsoft Graph connection check. Invoke-Maester checks the connection only when a selected test
+        # declares the Graph service, the run includes Pester-format tests, or the results are sent by mail or Teams.
+        # Use this switch when you connect to Graph yourself, or to run Pester-format tests that do not use Graph.
         [switch] $SkipGraphConnect,
 
         # Do not send the run events to api.maester.dev: a random installation ID, a hash of the
@@ -353,6 +390,10 @@
     )
 
     end {
+        # Affected objects are on unless the caller turned them off. A variable of its own: PowerShell names are not
+        # case-sensitive, so $includeAffectedObjects would be the -IncludeAffectedObjects switch.
+        $keepAffectedObjects = -not $ExcludeAffectedObjects.IsPresent
+
         function GetDefaultFileName() {
             $timestamp = Get-Date -Format 'yyyy-MM-dd-HHmmss'
             return "TestResults-$timestamp.html"
@@ -383,14 +424,14 @@
                 $out.OutputMarkdownFile = Join-Path $out.OutputFolder "$($out.OutputFolderFileName).md"
                 $out.OutputMarkdownSummaryFile = Join-Path $out.OutputFolder "$($out.OutputFolderFileName)-summary.md"
                 $out.OutputJsonFile = Join-Path $out.OutputFolder "$($out.OutputFolderFileName).json"
-                if ($IncludeAffectedObjects.IsPresent) {
-                    # Added only when requested so the OutputFiles of runs that do not opt in are unchanged.
+                if ($keepAffectedObjects) {
+                    # Written only when a test recorded an object.
                     $out | Add-Member -MemberType NoteProperty -Name OutputAffectedObjectsJsonFile -Value (Join-Path $out.OutputFolder "$($out.OutputFolderFileName)-affected-objects.json") -Force
                 }
 
                 if ($ExportCsv.IsPresent) {
                     $out.OutputCsvFile = Join-Path $out.OutputFolder "$($out.OutputFolderFileName).csv"
-                    if ($IncludeAffectedObjects.IsPresent) {
+                    if ($keepAffectedObjects) {
                         $out | Add-Member -MemberType NoteProperty -Name OutputAffectedObjectsCsvFile -Value (Join-Path $out.OutputFolder "$($out.OutputFolderFileName)-affected-objects.csv") -Force
                     }
                 }
@@ -437,8 +478,8 @@
 
         # Redaction maps user identities onto their stable ids, so it needs the inventory even when
         # the caller did not ask for the Affected objects page. Collect it in that case, but only surface it
-        # in the results and output files when -IncludeAffectedObjects was actually requested.
-        $collectAffectedObjects = $IncludeAffectedObjects.IsPresent -or $RedactUserIdentity -ne 'None'
+        # in the results and output files when -ExcludeAffectedObjects was not used.
+        $collectAffectedObjects = $keepAffectedObjects -or $RedactUserIdentity -ne 'None'
 
         # Anonymous run events: one now and one when the run ends, so a run that never ends shows up
         # (Write-Telemetry says what is sent). Stage says how far a run that did not complete got.
@@ -514,12 +555,12 @@
         }
 
         $selection = Resolve-MtSelection -RunConfig $runConfig -Tag $Tag -ExcludeTag $ExcludeTag -TestId $TestId -ExcludeTestId $ExcludeTestId `
-            -Product $Product -Feature $Feature -Area $Area -Severity $Severity -Suite $Suite -Pack $Pack `
+            -Product $Product -ExcludeProduct $ExcludeProduct -Feature $Feature -Area $Area -Severity $Severity -Suite $Suite -Pack $Pack `
             -IncludePreview:$IncludePreview -IncludeLongRunning:$IncludeLongRunning
         if ($SkipBuiltIn) { $selection.BuiltIn = 'None' }
         # The selectors live in $selection from here on. A test runs in a child scope of this function, so a
         # test that reads a $Severity or $Product it never set would otherwise see the value of the parameter.
-        $Product = $Feature = $Area = $Severity = $Suite = $Pack = $null
+        $Product = $ExcludeProduct = $Feature = $Area = $Severity = $Suite = $Pack = $null
         $Tag = $selection.Tag
         $ExcludeTag = $selection.ExcludeTag
         $IncludePreview = [switch]$selection.IncludePreview
@@ -548,16 +589,19 @@
 
         $EffectiveIncludePreview = 'Preview' -notin @($ExcludeTag)
 
+        # The Graph connection is checked only when the run needs it. Sending the results needs it whatever
+        # tests run, so that is checked now; the tests are checked once the plan is resolved (Test-MtGraphRequired).
+        $graphChecked = $false
         if ($SkipGraphConnect) {
             if (-not $NonInteractive.IsPresent) {
                 Write-Host '🔥 Skipping graph connection check' -ForegroundColor Yellow
             }
-        } else {
+        } elseif ($isMail -or $isTeamsChannelMessage) {
             Test-MtContext -SendMail:$isMail -SendTeamsMessage:$isTeamsChannelMessage `
                 -IncludePreview:$EffectiveIncludePreview | Out-Null
+            $graphChecked = $true
         }
 
-        # Initialize MtSession after Graph connected.
         Initialize-MtSession
 
         if ($isWebUri) {
@@ -747,6 +791,10 @@
             $script:__MtPackSet = @()
         }
 
+        # GlobalSettings is checked once, against the built-in settings and those of the packs in the run, so a
+        # mistyped key or a wrong value is reported here and not by every test that reads it.
+        Assert-MtGlobalSetting -RunConfig $runConfig
+
         # Stale copies of 2.x built-in wrappers under the custom root are not run (design section 8).
         $builtInInventory = $null
         $customInventory = @()
@@ -839,7 +887,9 @@
 
         # Stages 2, 5 and 6 for native tests: the tenant context, then selection and applicability.
         $nativeTests = @($nativeBuiltIn) + @($nativeCustom) + @($nativePack)
-        $neededServices = @($nativeTests | ForEach-Object { $_.Service } | Where-Object { $_ } | Select-Object -Unique)
+        # A service that only the tests of excluded products need is not read or connected.
+        $neededServices = @($nativeTests | Where-Object { -not (Test-MtProductExcluded -Selection $selection -Product (@($_.Product) + @($_.RelatedProduct))) } |
+                ForEach-Object { $_.Service } | Where-Object { $_ } | Select-Object -Unique)
         Write-MtProgress -Activity 'Starting Maester' -Status 'Reading the tenant context...' -Force
         # The dashboard shows the tenant and the services while they are read, and fills in each answer as it comes.
         $tenantStep = if ($console.Mode -eq 'Interactive') { Start-MtDashboardTenant -Renderer $renderer -Console $console -Service $(if ($neededServices) { $neededServices } else { @('Graph') }) }
@@ -849,6 +899,19 @@
         if ($nativeTests.Count -gt 0) {
             $nativePlan = @(Resolve-MtNativePlan -Test $nativeTests -Selection $selection -RunConfig $runConfig -TenantContext $tenantContext `
                     -IncludeTag @($pesterFilter.Tag) -ExcludeTag $nativeExcludeTag -AutoExcludedTag @($autoExcludedTag) -DryRun:$DryRun)
+        }
+
+        # A run whose tests read nothing from Graph (Active Directory, or a pack that reads a results file) needs
+        # no Graph connection. Pester-format tests do not declare their services, so a run with them is checked.
+        if (-not $SkipGraphConnect -and -not $graphChecked -and (Test-MtGraphRequired -Plan $nativePlan -PesterTest:($pesterRunPath.Count -gt 0))) {
+            try {
+                Test-MtContext -IncludePreview:$EffectiveIncludePreview | Out-Null
+            } catch {
+                # Give the screen back first: the error must be readable.
+                Stop-MtConsoleOutput -Message (@($mtDashboardWarnings) + @($mtDashboardErrors))
+                Reset-MtProgressView
+                throw
+            }
         }
 
         # The services of this run: one line in the dashboard header, and the list in the scrollback.
@@ -915,6 +978,7 @@
             FileOrigin      = $fileOrigin
             Superseded      = $superseded
             TenantContext   = $tenantContext
+            PackSet         = @($packSet)
         }
 
         Write-MtProgress -Activity 'Starting Maester' -Status 'Discovering tests to run...' -Force
@@ -976,7 +1040,11 @@
             Set-MtConsolePhase 'Results'
             Write-MtProgress -Activity 'Processing test results' -Status "$(@($pesterResults.Tests).Count + $nativeRows.Count) test(s)" -Force
 
-            # Build the Invoke-Maester command string from bound parameters
+            # Build the Invoke-Maester command string from bound parameters.
+            # Only strings and value types are written out. Any other object is recorded as its
+            # type name, because interpolating it calls its own ToString(), and a caller-supplied
+            # type can use that to place its contents - a connection string, a token - into a
+            # command string that is then stored in the result and the report.
             $invokeMaesterCommand = "Invoke-Maester"
             foreach ($param in $PSBoundParameters.GetEnumerator()) {
                 $paramName = $param.Key
@@ -985,16 +1053,12 @@
                     if ($paramValue.IsPresent) {
                         $invokeMaesterCommand += " -$paramName"
                     }
-                } elseif ($paramValue -is [array]) {
-                    $invokeMaesterCommand += " -$paramName @('$($paramValue -join "', '")')"
-                } elseif ($paramValue -is [string]) {
-                    $invokeMaesterCommand += " -$paramName '$paramValue'"
                 } elseif ($null -ne $paramValue) {
-                    $invokeMaesterCommand += " -$paramName $paramValue"
+                    $invokeMaesterCommand += " -$paramName $(ConvertTo-MtCommandParameterValue -Value $paramValue)"
                 }
             }
 
-            $maesterResults = ConvertTo-MtMaesterResult -PesterResults $PesterResults -OutputFiles $out -InvokeMaesterCommand $invokeMaesterCommand -PesterConfiguration $pesterConfig -SkipVersionCheck:$SkipVersionCheck -IncludeAffectedObjects:$collectAffectedObjects -RunContext $runContext -NativeRows $nativeRows -NativeDuration $nativeTimer.Elapsed
+            $maesterResults = ConvertTo-MtMaesterResult -PesterResults $PesterResults -OutputFiles $out -InvokeMaesterCommand $invokeMaesterCommand -PesterConfiguration $pesterConfig -SkipVersionCheck:$SkipVersionCheck -IncludeAffectedObjects:$collectAffectedObjects -RunContext $runContext -NativeRows $nativeRows -NativeDuration $nativeTimer.Elapsed -IncludePrevious
 
             # 'AllOutputs' redacts every generated output, 'HtmlOnly' leaves the machine readable
             # exports intact so findings can still be traced back to the real objects.
@@ -1006,8 +1070,13 @@
 
             # Drop the inventory again when it was only collected to drive redaction, so the reports
             # stay the size the caller asked for and the Affected objects page is not silently turned on.
-            if ($collectAffectedObjects -and -not $IncludeAffectedObjects.IsPresent) {
+            if ($collectAffectedObjects -and -not $keepAffectedObjects) {
                 $maesterResults.PSObject.Properties.Remove('AffectedObjects')
+            }
+            # The affected-objects files are written only when tests recorded objects, so the result does not list them
+            # otherwise. $out is the result's OutputFiles.
+            if (-not @($maesterResults.AffectedObjects | Where-Object { $_ }).Count) {
+                foreach ($name in 'OutputAffectedObjectsJsonFile', 'OutputAffectedObjectsCsvFile') { $out.PSObject.Properties.Remove($name) }
             }
 
             # Csv and Excel are produced by Convert-MtResultsToFlatObject, which writes the file
@@ -1058,7 +1127,8 @@
             if (![string]::IsNullOrEmpty($out.OutputAffectedObjectsCsvFile) -and $maesterResults.AffectedObjects) {
                 $output = $maesterResults.AffectedObjects | Select-Object System, AnchorKind, Type, Id, UniqueId, DisplayName, UserPrincipalName, PortalLink,
                 @{ Name = 'Tests'; Expression = { $_.Tests -join '; ' } },
-                @{ Name = 'Sources'; Expression = { $_.Sources -join '; ' } } |
+                @{ Name = 'Sources'; Expression = { $_.Sources -join '; ' } },
+                @{ Name = 'Facts'; Expression = { @($_.Facts | Where-Object { $_ } | ForEach-Object { "$($_.Name): $($_.Value)" }) -join '; ' } } |
                     ConvertTo-Csv -NoTypeInformation
                 if ($redactNonHtml) {
                     # Piped so the replacement regex is built once, not once per row.

@@ -1,4 +1,4 @@
-function Get-MtNativeTestInventory {
+﻿function Get-MtNativeTestInventory {
     <#
     .SYNOPSIS
     Discovers native tests (Test.<ID>.ps1) under a folder and resolves what their suite adds.
@@ -74,6 +74,15 @@ function Get-MtNativeTestInventory {
     foreach ($group in ($index.Unresolved | Group-Object { $_.Framework.Key })) {
         $references = @($group.Group | ForEach-Object { "$($_.Id) ($($_.Reference))" }) -join ', '
         Write-Warning "These tests have a Control that names the framework '$($group.Name)' and a requirement that '$($group.Group[0].Framework.File)' does not have, so it gives them no Benchmark: $references."
+    }
+
+    # A shim returns another test's function: ShimOf names that test, so a report can show the two as one setting.
+    $byFunction = @{}
+    foreach ($t in $tests) { if ($t.FunctionName -and $t.Id -and -not $byFunction.ContainsKey($t.FunctionName)) { $byFunction[$t.FunctionName] = $t.Id } }
+    foreach ($t in $tests) {
+        $target = if ($t.PSObject.Properties['ShimCommand'] -and $t.ShimCommand -and $byFunction.ContainsKey($t.ShimCommand)) { $byFunction[$t.ShimCommand] } else { $null }
+        if ($target -eq $t.Id) { $target = $null }
+        $t | Add-Member -NotePropertyName ShimOf -NotePropertyValue $target -Force
     }
 
     # Duplicate IDs and function names. Neither runs.
@@ -154,6 +163,9 @@ function Complete-MtNativeTest {
         if ($resolved.Related.Count -gt 0) { $Test.Control = @(@($Test.Control) + @($resolved.Related) | Where-Object { $_ } | Select-Object -Unique) }
         foreach ($miss in $resolved.Unresolved) { $Framework.Unresolved.Add([pscustomobject]@{ Id = $Test.Id; Reference = $miss.Reference; Framework = $miss.Framework }) }
     }
+    # A family's instances can name requirements of their own, and they exist only at run time: keep the
+    # frameworks this test could name for them (Get-MtTestFrameworkIndex).
+    if ($Framework -and $Test.InstanceSource -and $Test.File) { Register-MtTestFrameworkIndex -File $Test.File -Index $Framework }
 
     $Test | Add-Member -NotePropertyMembers ([ordered]@{
             Source       = $source

@@ -27,14 +27,14 @@
         ImplementationCost = 'Low',
         Mitre = 'T1685.002',
         Control = 'cisa-scuba:MS.EXO.17.1',
-        Service = ('ExchangeOnline', 'SecurityCompliance'),
+        Service = 'ExchangeOnline',
         Author = 'soulemike'
     )]
     [CmdletBinding()]
     [OutputType([bool])]
     param()
 
-    $config = Get-AdminAuditLogConfig
+    $config = Get-MtExo -Request AdminAuditLogConfig
 
     $testResult = $config.UnifiedAuditLogIngestionEnabled
 

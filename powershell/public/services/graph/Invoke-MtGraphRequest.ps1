@@ -12,9 +12,13 @@
     * Ability to skip cache and go directly to Graph
     * Specify consistency level as a parameter
 
-    :::info
+    :::note
     Note: Batch requests don't support caching.
     :::
+
+    In a batch, a request that Graph throttles (429, 503 or 504) is sent again after the wait Graph asks for, up to
+    three times. A request for an object that does not exist (404) returns nothing. Any other failed request in the
+    batch throws an error.
 
     .Example
     Invoke-MtGraph -RelativeUri "users" -Filter "displayName eq 'John Doe'" -Select "displayName"
@@ -70,7 +74,9 @@
         # Specify if this request should skip cache and go directly to Graph.
         [Parameter(Mandatory = $false)]
         [switch] $DisableCache,
-        # Specify the output type
+        # The shape of the response. Keep the default (PSObject) unless your code cannot work without another type.
+        # Responses are cached per output type, so a request for Hashtable or PSCustomObject misses the response
+        # that other checks already cached as PSObject and makes its own call to Microsoft Graph.
         [Parameter(Mandatory = $false)]
         [ValidateSet('PSObject', 'PSCustomObject', 'Hashtable')]
         [string] $OutputType = 'PSObject'
@@ -81,8 +87,11 @@
         # endpoint is read from the active Graph context on every invocation, so a context switch
         # inside a single session is picked up instead of reusing a stale session value.
         [bool] $IsEndpointOverride = -not [string]::IsNullOrEmpty($GraphBaseUri)
+        # Read once, for the endpoint below and for the tenant in the cache key. An endpoint override
+        # replaces the endpoint the context would give, not the tenant the connection is to, so the
+        # tenant is read on that path as well.
+        $MgContext = Get-MgContext
         if (!$IsEndpointOverride) {
-            $MgContext = Get-MgContext
             if (-not $MgContext -or [string]::IsNullOrEmpty($MgContext.Environment)) {
                 throw "No active Microsoft Graph context. Ensure you are connected via 'Connect-Maester', or pass -GraphBaseUri to target an endpoint explicitly."
             }
@@ -109,6 +118,19 @@
         }
         # Exposed for callers that read the session value; no longer used to route requests.
         $__MtSession.GraphBaseUri = $GraphBaseUri
+
+        # Responses are cached in the shape they were requested in, so a Hashtable response is never served to a
+        # caller that asked for PSObject, or the other way round. The suffix starts with "_[" so the affected-object
+        # inventory, which strips "_[" and "_{" suffixes from cache keys, still reads the request URL.
+        $cacheKeySuffix = if ($OutputType -and $OutputType -ne 'PSObject') { "_[$OutputType]" } else { '' }
+
+        # The cache lives for the session, and a session can connect to a second tenant: the same request
+        # against two tenants in one cloud produces the same uri, so without the tenant in the key the
+        # second tenant is answered with the first tenant's data and nothing in the result says so. The
+        # tenant goes in a "_{...}" suffix, not a prefix, because the affected-object inventory recovers
+        # the request url by reading a cache key up to its first "_[" or "_{": a prefix would leave every
+        # Graph entry unmatched and silently drop it from the report's affected objects.
+        if ($MgContext.TenantId) { $cacheKeySuffix += "_{$($MgContext.TenantId)}" }
 
         # The endpoint itself can carry a path, for example a reverse proxy in front of Graph. A base
         # that does not end in a slash makes its last segment look like a document, which would put
@@ -137,6 +159,15 @@
         [string] $VersionedBaseUri = (New-Object System.UriBuilder -ArgumentList ($TransportBaseUri.AbsoluteUri + $ApiVersion)).Uri.AbsoluteUri.TrimEnd('/') + '/'
 
         $listRequests = New-Object 'System.Collections.Generic.List[psobject]'
+        # Batch request id -> the cache key of the request that id stands for, so a paged response is
+        # cached under its own key once the request loop has ended.
+        $batchCacheKeys = @{}
+
+        # Batched requests that Graph throttled are retried up to this many attempts in all, waiting for the
+        # Retry-After header, capped so one request cannot hold up the run for long.
+        $BatchRetryStatusCodes = 429, 503, 504
+        $BatchMaxAttempts = 4
+        $BatchMaxRetryAfterSeconds = 60
 
         # The override-versus-relative decision lives here only, so the single-request path and the
         # batch path cannot drift apart. Relative by default is what lets Microsoft Graph PowerShell
@@ -166,7 +197,11 @@
             } else { Write-Output $results }
         }
 
-        function Complete-Result ($results, $DisablePaging) {
+        # $CacheKey is the key of the request whose response this is. It is passed in rather than read
+        # from the enclosing scope because the batch path completes its responses after the loop that
+        # builds the requests has ended, so the last request's uri is the only one still in scope: every
+        # paged response in a batch would otherwise be cached under the key of the last request.
+        function Complete-Result ($Results, $DisablePaging, $CacheKey) {
             if (!$DisablePaging -and $results -and (Get-ObjectProperty $results '@odata.nextLink')) {
                 # The "skipToken" are in rare cases not unique, so when it is processed, we can end up in a caching loop. By updating the cache with the original uri with the final result, we workaround this issue and have a faster cache.
                 $resultList = New-Object -TypeName System.Collections.ArrayList
@@ -177,8 +212,8 @@
                 } while (Get-ObjectProperty $results '@odata.nextLink')
                 $results.value = $resultList
                 # Update the original request cache with the consolidated results
-                if (!$DisableCache) {
-                    $__MtSession.GraphCache[$uriQueryEndpointFinal.Uri.AbsoluteUri] = $results
+                if (!$DisableCache -and $CacheKey) {
+                    $__MtSession.GraphCache[$CacheKey] = $results
                 }
             }
             Format-Result $results $DisablePaging
@@ -217,6 +252,10 @@
                 $uriQueryEndpointFinal = New-Object System.UriBuilder -ArgumentList $uriQueryEndpoint.Uri
                 $uriQueryEndpointFinal.Path = ([IO.Path]::Combine($uriQueryEndpointFinal.Path, $id))
 
+                # The cache key stays absolute, which is what keeps entries from one
+                # environment from being served to another.
+                $requestCacheKey = $uriQueryEndpointFinal.Uri.AbsoluteUri + $cacheKeySuffix
+
                 if (!$DisableBatching -and ($RelativeUri.Count -gt 1 -or $UniqueId.Count -gt 1)) {
                     ## Create batch request entry
                     $request = New-Object PSObject -Property @{
@@ -226,11 +265,11 @@
                         headers = @{ ConsistencyLevel = $ConsistencyLevel }
                     }
                     $listRequests.Add($request)
+                    # Kept beside the request rather than on it, so the key never reaches the batch body.
+                    $batchCacheKeys[[string]$request.id] = $requestCacheKey
                 } else {
-                    # The cache key stays absolute, which is what keeps entries from one
-                    # environment from being served to another.
-                    $results = Invoke-MtGraphRequestCache -Method $($Method) -Uri (Resolve-TransportUri $uriQueryEndpointFinal.Uri) -CacheKey $uriQueryEndpointFinal.Uri.AbsoluteUri -Headers @{ ConsistencyLevel = $ConsistencyLevel } -OutputType $OutputType -DisableCache:$DisableCache -Body $Body
-                    Complete-Result $results $DisablePaging
+                    $results = Invoke-MtGraphRequestCache -Method $($Method) -Uri (Resolve-TransportUri $uriQueryEndpointFinal.Uri) -CacheKey $requestCacheKey -Headers @{ ConsistencyLevel = $ConsistencyLevel } -OutputType $OutputType -DisableCache:$DisableCache -Body $Body
+                    Complete-Result -Results $results -DisablePaging $DisablePaging -CacheKey $requestCacheKey
                 }
             }
         }
@@ -241,14 +280,63 @@
             $uriQueryEndpoint = New-Object System.UriBuilder -ArgumentList ([IO.Path]::Combine($GraphBaseUri.AbsoluteUri, $ApiVersion, '$batch'))
             for ($iRequest = 0; $iRequest -lt $listRequests.Count; $iRequest += $BatchSize) {
                 $indexEnd = [System.Math]::Min($iRequest + $BatchSize - 1, $listRequests.Count - 1)
-                $jsonRequests = New-Object psobject -Property @{ requests = $listRequests[$iRequest..$indexEnd] } | ConvertTo-Json -Depth 5
-                Write-Debug $jsonRequests
+                $pendingRequests = @($listRequests[$iRequest..$indexEnd])
+                $batchResponses = New-Object 'System.Collections.Generic.List[object]'
 
-                $resultsBatch = Invoke-MtGraphRequestCache -Method POST -Uri (Resolve-TransportUri $uriQueryEndpoint.Uri) -CacheKey $uriQueryEndpoint.Uri.AbsoluteUri -Body $jsonRequests -OutputType $OutputType -DisableCache:$DisableCache
-                $resultsBatch = $resultsBatch.responses | Sort-Object -Property id
+                # Each request in a batch succeeds or fails on its own. Graph throttles them one by one, so the
+                # throttled ones (429, 503, 504) are sent again after the wait Graph asks for.
+                for ($attempt = 1; $pendingRequests.Count -gt 0; $attempt++) {
+                    $jsonRequests = New-Object psobject -Property @{ requests = $pendingRequests } | ConvertTo-Json -Depth 5
+                    Write-Debug $jsonRequests
 
-                foreach ($results in ($resultsBatch.body)) {
-                    Complete-Result $results $DisablePaging
+                    $resultsBatch = Invoke-MtGraphRequestCache -Method POST -Uri (Resolve-TransportUri $uriQueryEndpoint.Uri) -CacheKey $uriQueryEndpoint.Uri.AbsoluteUri -Body $jsonRequests -OutputType $OutputType -DisableCache:$DisableCache
+
+                    $retryIds = @()
+                    $retryAfter = 0
+                    foreach ($response in @($resultsBatch.responses)) {
+                        if ([int]$response.status -in $BatchRetryStatusCodes -and $attempt -lt $BatchMaxAttempts) {
+                            $retryIds += [string]$response.id
+                            $retryAfterHeader = 0
+                            if ($response.headers -and [int]::TryParse([string]$response.headers.'Retry-After', [ref]$retryAfterHeader)) {
+                                $retryAfter = [System.Math]::Max($retryAfter, $retryAfterHeader)
+                            }
+                        } else {
+                            $batchResponses.Add($response)
+                        }
+                    }
+
+                    $pendingRequests = @($pendingRequests | Where-Object { [string]$_.id -in $retryIds })
+                    if ($pendingRequests.Count -gt 0) {
+                        # Without a Retry-After header, back off 2, 4, 8 seconds.
+                        $waitSeconds = if ($retryAfter -gt 0) { [System.Math]::Min($retryAfter, $BatchMaxRetryAfterSeconds) } else { [System.Math]::Pow(2, $attempt) }
+                        Write-Verbose ("Graph throttled {0} request(s) in a batch. Retrying in {1} second(s) (attempt {2} of {3})." -f $pendingRequests.Count, $waitSeconds, ($attempt + 1), $BatchMaxAttempts)
+                        Start-Sleep -Seconds $waitSeconds
+                    }
+                }
+
+                foreach ($response in ($batchResponses | Sort-Object -Property { [int]$_.id })) {
+                    $status = [int]$response.status
+                    $request = $listRequests | Where-Object { [string]$_.id -eq [string]$response.id } | Select-Object -First 1
+                    if ($status -eq 404) {
+                        # An object that does not exist, such as a deleted user, returns nothing, as it would on its own.
+                        Write-Verbose "Graph returned 404 Not Found for '$($request.url)' in a batch. Skipping it."
+                        continue
+                    }
+                    if ($status -ge 400) {
+                        # Any other failure stops the caller, so a check cannot report on the objects it did read
+                        # as if they were all of them.
+                        $graphError = Get-ObjectProperty $response.body 'error'
+                        $message = "Graph batch request for '$($request.url)' failed with status $status"
+                        if ($graphError) { $message += " ($($graphError.code)): $($graphError.message)" }
+                        $category = switch ($status) {
+                            401 { [System.Management.Automation.ErrorCategory]::AuthenticationError }
+                            403 { [System.Management.Automation.ErrorCategory]::PermissionDenied }
+                            429 { [System.Management.Automation.ErrorCategory]::LimitsExceeded }
+                            default { [System.Management.Automation.ErrorCategory]::InvalidResult }
+                        }
+                        throw [System.Management.Automation.ErrorRecord]::new([System.InvalidOperationException]::new($message), 'MtGraphBatchRequestFailed', $category, $request.url)
+                    }
+                    Complete-Result -Results $response.body -DisablePaging $DisablePaging -CacheKey $batchCacheKeys[[string]$response.id]
                 }
             }
         }

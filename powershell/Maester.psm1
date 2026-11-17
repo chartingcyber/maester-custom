@@ -19,7 +19,9 @@ $__MtSession = @{
 	TestResultDetail       = @{}
 	NativeTestInfo         = @{}                 # Native tests of the current run: ID -> function name and Markdown
 	NativeReturnValue      = @{}                 # Native tests of the current run: ID -> what the test returned
+	SettingRead            = @{}                 # Native tests of the current run: ID -> names of the settings read with Get-MtSetting
 	Connections            = @()
+	ConnectionConfig       = $null             # Reference to config discovered by a connector, not an explicit run config.
 	DnsCache               = @()
 	ExoCache               = @{}
 	OrcaCache              = @{}
@@ -29,12 +31,14 @@ $__MtSession = @{
 	DataverseResourceUrl   = $null   # Dataverse resource URL for token acquisition (e.g. https://org123.crm.dynamics.com)
 	DataverseEnvironmentId = $null # Environment identifier for display (e.g. org123.crm.dynamics.com)
 	SpoCache               = @{}                 # Cache for SharePoint Online tenant settings retrieved via PnP
+	FabricCache            = @{}                 # Fabric admin API data cached for the current test run
 	GitHubCache            = @{}                 # Per-session REST response cache; cleared each Invoke-Maester run
 	ADCache                = @{}                 # Active Directory data cache
 	ADConnection           = $null               # Active Directory connection state
 	ADCredential           = $null               # Active Directory credential retained only for the connected session
 	ADCollectionTime       = $null               # Timestamp of last AD data collection
 	IncludeAffectedObjects  = $false              # Set by Invoke-Maester -IncludeAffectedObjects; gates per-test object capture
+	AffectedObjectFacts    = $null               # Add-MtAffectedObjectFact: System|Type|Id -> facts about an object, merged into the AffectedObjects
 	Console                = $null               # Get-MtConsoleMode result for the current Invoke-Maester run
 	PackConnections        = @{}                 # Maester Packs: service -> connection state a pack connector set with Set-MtConnectionState
 	ReportAttachments      = $null               # Add-MtReportAttachment: reports of other tools embedded in the HTML report
@@ -82,6 +86,9 @@ if (Test-Path -LiteralPath $builtInTestRoot) {
 if ($importErrors.Count -gt 0) {
 	Write-Warning "Module loaded with $($importErrors.Count) import error(s). Some functionality may be unavailable."
 }
+
+# Tab completion for the parameters listed in Get-MtArgumentCompleterTable. The build writes the same call.
+Register-MtArgumentCompleter
 
 # Safely import module manifest
 try {

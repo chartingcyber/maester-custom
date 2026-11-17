@@ -1,7 +1,9 @@
-﻿2.1.11 (L2) Ensure comprehensive attachment filtering is applied
+2.1.11 (L2) Ensure comprehensive attachment filtering is applied
 
 The Common Attachment Types Filter lets a user block known and custom malicious file types from being attached to emails. The policy provided by Microsoft covers 53 extensions, and an additional custom list of extensions can be defined.
 The list of 186 extensions provided in this recommendation is comprehensive but not exhaustive.
+
+This check evaluates each policy with more than 120 file types independently. At least one policy must have file filtering enabled, an associated enabled rule, and 90% or more of the benchmark extension list. Recipient scope is not evaluated, matching the CIS audit procedure.
 
 #### Rationale
 

@@ -1,8 +1,10 @@
-﻿2.1.1 (L2) Ensure Safe Links for Office Applications is Enabled
+2.1.1 (L2) Ensure Safe Links for Office Applications is Enabled
 
 Enabling Safe Links policy for Office applications allows URL's that exist inside of Office documents and email applications opened by Office, Office Online and Office mobile to be processed against Defender for Office time-of-click verification and rewritten if required.
 
 >Note: E5 Licensing includes a number of Built-in Protection policies. When auditing policies note which policy you are viewing, and keep in mind CIS recommendations often extend the Default or Built-in Policies provided by MS. In order to Pass the highest priority policy must match all settings recommended.
+
+The check evaluates the policy associated with the priority-0 Safe Links rule. The rule must be enabled; matching policy settings do not pass if the rule is disabled.
 
 #### Rationale
 

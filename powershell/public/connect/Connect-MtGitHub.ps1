@@ -127,6 +127,7 @@
             [string]::IsNullOrWhiteSpace($ApiBaseUri) -or
             [string]::IsNullOrWhiteSpace($ApiVersion))) {
         $__MtSession.MaesterConfig = Resolve-MtRunConfig -Path (Get-Location).Path -WarningAction SilentlyContinue
+        $__MtSession.ConnectionConfig = $__MtSession.MaesterConfig
     }
 
     # Resolve organization (param -> config -> error)
@@ -228,7 +229,7 @@
         if ($bstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
     }
 
-    if ([string]::IsNullOrEmpty($plainToken) -and (Get-MtUserInteractive)) {
+    if ([string]::IsNullOrEmpty($plainToken) -and (Get-MtUserInteractive) -and -not (Test-MtGitHubPromptBlocked)) {
         $deviceToken = Get-MtGitHubAppDeviceToken -ClientId $maesterGitHubAppClientId
         if ($null -eq $deviceToken -or [string]::IsNullOrWhiteSpace([string]$deviceToken.AccessToken)) {
             $failureReason = if ($null -ne $deviceToken -and -not [string]::IsNullOrWhiteSpace([string]$deviceToken.FailureReason)) { [string]$deviceToken.FailureReason } else { 'GitHubDeviceFlowFailed' }
@@ -257,9 +258,13 @@
     }
     Remove-Variable -Name plainToken -ErrorAction SilentlyContinue
 
+    # Bootstrap probes use the same guard as assessment requests. Carry this connection's cooldown
+    # into the final session, including a non-blocking administration-probe limit.
+    $rateLimitConnection = [pscustomobject]@{ ApiBaseUri = $ApiBaseUri }
+
     # Probe 1: token identity
     try {
-        $userResponse = Invoke-WebRequest -Uri "$ApiBaseUri/user" -Headers $authHeaders -Method GET -UseBasicParsing -ConnectionTimeoutSeconds 30 -OperationTimeoutSeconds 30 -ErrorAction Stop
+        $userResponse = Invoke-MtGitHubConnectionProbe -Uri "$ApiBaseUri/user" -Headers $authHeaders -Connection $rateLimitConnection
         $user = $userResponse.Content | ConvertFrom-Json
         Write-Verbose "GitHub token identity: $($user.login)"
     } catch {
@@ -327,7 +332,7 @@
         $roleWarning = $null
 
         try {
-            $orgResponse = Invoke-WebRequest -Uri "$ApiBaseUri/orgs/$encodedOrg" -Headers $authHeaders -Method GET -UseBasicParsing -ConnectionTimeoutSeconds 30 -OperationTimeoutSeconds 30 -ErrorAction Stop
+            $orgResponse = Invoke-MtGitHubConnectionProbe -Uri "$ApiBaseUri/orgs/$encodedOrg" -Headers $authHeaders -Connection $rateLimitConnection
             try {
                 $orgData = $orgResponse.Content | ConvertFrom-Json -ErrorAction Stop
             } catch {
@@ -386,7 +391,7 @@
         # Use /user/memberships/orgs/{org} so the token only has to prove its own membership,
         # not read an arbitrary /orgs/{org}/memberships/{username} record.
         try {
-            $membershipResponse = Invoke-WebRequest -Uri "$ApiBaseUri/user/memberships/orgs/$encodedOrg" -Headers $authHeaders -Method GET -UseBasicParsing -ConnectionTimeoutSeconds 30 -OperationTimeoutSeconds 30 -ErrorAction Stop
+            $membershipResponse = Invoke-MtGitHubConnectionProbe -Uri "$ApiBaseUri/user/memberships/orgs/$encodedOrg" -Headers $authHeaders -Connection $rateLimitConnection
 
             $membershipData = $null
             try {
@@ -471,7 +476,7 @@
     $adminAcceptedPermissions = $null
     $adminWarning            = $null
     try {
-        $adminResponse = Invoke-WebRequest -Uri "$ApiBaseUri/orgs/$encodedOrg/actions/permissions" -Headers $authHeaders -Method GET -UseBasicParsing -ConnectionTimeoutSeconds 30 -OperationTimeoutSeconds 30 -ErrorAction Stop
+        $adminResponse = Invoke-MtGitHubConnectionProbe -Uri "$ApiBaseUri/orgs/$encodedOrg/actions/permissions" -Headers $authHeaders -Connection $rateLimitConnection
         $adminVerified   = $true
         $adminStatusCode = 200
         if ($adminResponse.PSObject.Properties.Name -contains 'StatusCode' -and $null -ne $adminResponse.StatusCode) {
@@ -518,6 +523,10 @@
         AdministrationPermissionStatusCode          = $adminStatusCode
         AdministrationPermissionAcceptedPermissions = $adminAcceptedPermissions
         FailureReason                               = $null
+    }
+
+    if ([object]::ReferenceEquals($__MtSession.GitHubRateLimits.Connection, $rateLimitConnection)) {
+        $__MtSession.GitHubRateLimits.Connection = $__MtSession.GitHubConnection
     }
 
     $orgCacheKey = Get-MtGitHubCacheKey -ApiVersion $ApiVersion -AbsoluteUri "$ApiBaseUri/orgs/$encodedOrg"

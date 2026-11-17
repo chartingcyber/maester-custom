@@ -25,6 +25,7 @@
         Mitre = 'T1078.002',
         Control = 'nist-800-53-r5:AC-2(3)',
         Service = 'ActiveDirectory',
+        Permission = ('ActiveDirectory:Ldap:user:ReadProperty'),
         Author = 'soulemike'
     )]
     [CmdletBinding()]
@@ -32,7 +33,7 @@
     param(
         # Number of days without a logon before an enabled account is considered dormant.
         [ValidateRange(1, 3650)]
-        [int] $DormantThresholdDays = 90
+        [int] $MaximumInactiveDays = 90
     )
 
     Write-Verbose "Starting Test-MtAdUserDormantEnabledCount"
@@ -44,7 +45,7 @@
     }
     Write-Verbose "Filtering/counting user dormant enabled count"
 
-    $thresholdDays = $DormantThresholdDays
+    $thresholdDays = $MaximumInactiveDays
     $thresholdDate = (Get-Date).AddDays(-$thresholdDays)
     $users = @($adState.Users)
     $enabledUsers = @($users | Where-Object { $_.Enabled -eq $true })
